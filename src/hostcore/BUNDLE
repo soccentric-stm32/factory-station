@@ -1,0 +1,5 @@
+{
+  "bundle_sha256": "1b2d459301ba9bfe6d3420b7391ccb764b66e02dd7e0cd7cfc4245b87020da0b",
+  "schema_sha256": "4c1f817be8938e18fd8b3b8a54bf2a18cc4d480aaeba5f21a1e3df9be0896353",
+  "source": "/mnt/data/workspace/stm32/bootloader/build/soccentric-hwlink"
+}

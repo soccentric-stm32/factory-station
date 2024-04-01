@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=HWVAL Factory
+Comment=STM32F767ZI end-of-line test and provisioning
+Exec=hwval-factory
+Icon=hwval-factory
+Terminal=false
+Categories=Development;Utility;

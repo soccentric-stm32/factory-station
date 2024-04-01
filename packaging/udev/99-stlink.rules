@@ -1,0 +1,3 @@
+# ST-LINK/V2 and ST-LINK/V3 probes (STMicroelectronics VID 0483)
+SUBSYSTEM=="usb", ATTR{idVendor}=="0483", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", MODE="0660", GROUP="plugdev", TAG+="uaccess"

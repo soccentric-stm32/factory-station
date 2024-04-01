@@ -1,0 +1,15 @@
+# Check out text files with LF endings on every platform.
+#
+# src/hostcore/BUNDLE records the SHA-256 of the composed protocol schema and
+# tests/test_contracts.py recomputes it from the working tree, so a CRLF
+# checkout (Git for Windows defaults to core.autocrlf=true) fails the contract
+# test even though the committed bytes are correct.
+* text=auto eol=lf
+
+# Binary assets must never be normalised.
+*.png binary
+*.ico binary
+*.icns binary
+*.bin binary
+*.elf binary
+*.img binary

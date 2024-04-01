@@ -1,0 +1,752 @@
+// hwlink.fbs - HWLINK control protocol (LINK A.5)
+//
+// Author:  Sandesh Ghimire <sandesh@soccentric.com>
+// Date:    2026-11-03
+// SRS:     SRS-GUI-F767 Appendix A, SRS-DEMO-F767 section 8
+//
+// The schema is deliberately append-only: fields may be added at the end
+// and the protocol minor version is raised, but nothing is removed or
+// reordered within major version 1 (LNK-013).
+
+namespace hwlink;
+
+file_identifier "HWLK";
+file_extension "hwlink";
+
+// --------------------------------------------------------------------- enums
+
+enum Role : ubyte {
+    HWVAL       = 1,
+    BOOTLOADER  = 2,
+    DEMO        = 3,
+    // Protocol minor 4 (factory rewrite): the factory firmware.
+    FACTORY     = 4
+}
+
+enum Error : ushort {
+    NONE            = 0,
+    MALFORMED       = 1,
+    UNSUPPORTED     = 2,
+    BAD_ARGUMENT    = 3,
+    BAD_STATE       = 4,
+    BUSY            = 5,
+    NOT_FOUND       = 6,
+    BAD_HEADER      = 7,
+    BAD_LAYOUT      = 8,
+    BAD_VECTORS     = 9,
+    OUT_OF_ORDER    = 10,
+    FLASH_ERROR     = 11,
+    CRC_MISMATCH    = 12,
+    WRONG_FLASH_MODE = 13,
+    // Protocol minor 3 (BSAFE-006): the image is unsigned, signed with a
+    // different key, has a bad signature or a SHA-256 mismatch.
+    AUTH_FAILED     = 14,
+    // Protocol minor 3 (BSAFE-006): the image's security counter is below
+    // the counter of an installed, confirmed image.
+    ROLLBACK        = 15,
+    // Protocol minor 4 (factory rewrite): an address or length is outside
+    // the factory data window, or a file is the wrong size.
+    BAD_RANGE       = 16,
+    // Protocol minor 4 (factory rewrite): the file is bound to another chip.
+    BAD_UID         = 17
+}
+
+enum LogLevel : ubyte {
+    DEBUG = 0,
+    INFO  = 1,
+    WARN  = 2,
+    ERROR = 3
+}
+
+enum FlashMode : ubyte {
+    UNKNOWN     = 0,
+    SINGLE_BANK = 1,
+    DUAL_BANK   = 2
+}
+
+enum LedId : ubyte {
+    LD1 = 1,
+    LD2 = 2,
+    LD3 = 3
+}
+
+enum LedPattern : ubyte {
+    OFF         = 0,
+    ON          = 1,
+    BLINK       = 2,
+    HEARTBEAT   = 3,
+    FAST        = 4,
+    CHASE       = 5,
+    MORSE_SOS   = 6
+}
+
+enum Slot : ubyte {
+    UNKNOWN = 0,
+    A       = 1,
+    B       = 2
+}
+
+enum TrialState : ubyte {
+    UNKNOWN   = 0,
+    CONFIRMED = 1,
+    PENDING   = 2
+}
+
+enum HealthState : ubyte {
+    NOT_REQUIRED = 0,
+    RUNNING      = 1,
+    PASSED       = 2,
+    FAILED       = 3
+}
+
+enum ButtonPress : ubyte {
+    SHORT = 1,
+    LONG  = 2
+}
+
+enum BootOutcome : ubyte {
+    UNKNOWN       = 0,
+    BOOTED        = 1,
+    ROLLED_BACK   = 2,
+    UPDATE_MODE   = 3
+}
+
+// ------------------------------------------------------------------ common
+
+table Hello {
+    host_name:string;
+    host_version:string;
+    protocol_minor:uint16;
+}
+
+table HelloReply {
+    role:Role = DEMO;
+    firmware_name:string;
+    version:string;
+    commit:string;
+    build_time:string;
+    uid:ulong;
+    dev_id:uint32;
+    rev_id:uint32;
+    flash_mode:FlashMode;
+    protocol_major:uint16;
+    protocol_minor:uint16;
+    max_frame:uint16;
+    detail:string;
+}
+
+table Ping {
+    host_time_ms:ulong;
+}
+
+table Pong {
+    uptime_ms:ulong;
+}
+
+table SetBaud {
+    rate:uint32;
+}
+
+table Ack {
+    seq:uint16;
+    next_offset:uint32;
+}
+
+table Nak {
+    seq:uint16;
+    error:Error;
+    detail:string;
+    expected_offset:uint32;
+}
+
+table Log {
+    level:LogLevel;
+    text:string;
+}
+
+table Progress {
+    operation:string;
+    done:uint32;
+    total:uint32;
+}
+
+table Reset {
+}
+
+// -------------------------------------------------------------------- DEMO
+
+table SetLed {
+    led:LedId = LD1;
+    pattern:LedPattern;
+    period_ms:uint16;
+    force:bool;
+}
+
+table SetLedAll {
+    pattern:LedPattern;
+    period_ms:uint16;
+}
+
+table ClearFault {
+}
+
+table GetStatus {
+}
+
+table EnterBootloader {
+}
+
+table LedState {
+    led:LedId = LD1;
+    pattern:LedPattern;
+    period_ms:uint16;
+}
+
+table TaskStats {
+    name:string;
+    priority:ubyte;
+    state:ubyte;
+    stack_high_water:uint16;
+}
+
+table FaultInfo {
+    present:bool;
+    reason:string;
+    cfsr:uint32;
+    hfsr:uint32;
+    mmfar:uint32;
+    bfar:uint32;
+    pc:uint32;
+    lr:uint32;
+    task:string;
+    file:string;
+    line:uint32;
+}
+
+table Status {
+    firmware_name:string;
+    version:string;
+    commit:string;
+    build_time:string;
+    uid:ulong;
+    uptime_ms:ulong;
+    slot:Slot;
+    trial:TrialState;
+    trial_count:ubyte;
+    health:HealthState;
+    reset_cause:uint32;
+    reset_cause_text:string;
+    fault:FaultInfo;
+    leds:[LedState];
+    tasks:[TaskStats];
+    heap_free:uint32;
+    heap_min_free:uint32;
+    protocol_major:uint16;
+    protocol_minor:uint16;
+}
+
+table ButtonEvent {
+    press:ButtonPress = SHORT;
+    pattern:LedPattern;
+    period_ms:uint16;
+}
+
+// -------------------------------------------------------------------- BOOT
+
+table ImageHeader {
+    magic:uint32;
+    header_version:uint16;
+    header_size:uint16;
+    image_type:uint32;
+    version:uint32;
+    image_size:uint32;
+    image_crc32:uint32;
+    load_address:uint32;
+    entry_address:uint32;
+    build_timestamp:uint32;
+    git_commit:[ubyte];
+    name:string;
+    // IMG-001: CRC32 of header bytes 0..251.  Appended for protocol
+    // minor 1; older hosts may omit it, in which case BOOT recomputes it.
+    header_crc32:uint32;
+    // Protocol minor 3 (BSAFE-006): header bytes 88..251 verbatim.  For a
+    // version 2 header these hold the security counter, key id, image
+    // SHA-256 and ECDSA P-256 signature.  Older hosts omit it and BOOT
+    // fills the bytes with zeros.
+    extension:[ubyte];
+}
+
+table BootSlotInfo {
+    slot:Slot;
+    present:bool;
+    valid:bool;
+    pending:bool;
+    confirmed:bool;
+    rejected:bool;
+    sequence:uint32;
+    trial_count:ubyte;
+    version:uint32;
+    build_timestamp:uint32;
+    git_commit:string;
+    name:string;
+    image_size:uint32;
+    detail:string;
+    // Protocol minor 3 (BSAFE-006): anti-rollback counter of the image.
+    security_counter:uint32;
+}
+
+table BootInfo {
+    active_slot:Slot;
+    last_outcome:BootOutcome;
+    rejected_slot:Slot;
+    flash_mode:FlashMode;
+    slots:[BootSlotInfo];
+    // Protocol minor 2 (P0-3): BOOT reports whether it found a bootable
+    // slot and which slot it will write on the next update.  Hosts must
+    // use target_slot instead of guessing "the slot that is not active".
+    active_valid:bool;
+    target_slot:Slot;
+    // Protocol minor 2 (P3-9): BOOT's own build so hosts can detect an
+    // outdated bootloader.
+    boot_version:string;
+    boot_build:string;
+    // Protocol minor 3 (BSAFE-006): whether BOOT only accepts signed
+    // images, the id of its public key (first four bytes of its SHA-256,
+    // little-endian) and the current anti-rollback floor.
+    signed_images:bool;
+    key_id:uint32;
+    security_floor:uint32;
+}
+
+table UpdateBegin {
+    header:ImageHeader;
+    // Protocol minor 2 (P0-1): bench-only override that allows an update
+    // while the active slot is still on trial.  Production hosts must not
+    // set it: the other slot is the only rollback image.
+    force:bool;
+}
+
+table UpdateData {
+    offset:uint32;
+    data:[ubyte];
+}
+
+table UpdateEnd {
+}
+
+table UpdateResult {
+    success:bool;
+    image_crc32:uint32;
+    error:Error;
+    detail:string;
+}
+
+table Activate {
+}
+
+table UpdateAbort {
+}
+
+table GetBootInfo {
+}
+
+// ------------------------------------------------------------------- HWVAL
+
+enum TestLevel : ubyte {
+    S = 0,
+    L = 1,
+    E = 2
+}
+
+enum TestVerdict : ubyte {
+    PASS = 0,
+    FAIL = 1,
+    SKIP = 2,
+    NA   = 3
+}
+
+enum PromptKind : ubyte {
+    YES_NO      = 0,
+    LINE        = 1,
+    BUTTON      = 2,
+    EQUIPMENT   = 3,
+    DESTRUCTIVE = 4
+}
+
+table GetDeviceInfo {
+}
+
+table DeviceInfo {
+    firmware_name:string;
+    version:string;
+    commit:string;
+    build_time:string;
+    srs_id:string;
+    dev_id:uint32;
+    rev_id:uint32;
+    cpuid:uint32;
+    flash_size_kb:uint32;
+    package:string;
+    uid:string;
+    optcr:uint32;
+    optcr1:uint32;
+    sysclk_hz:uint32;
+    hclk_hz:uint32;
+    pclk1_hz:uint32;
+    pclk2_hz:uint32;
+    apb1_tim_hz:uint32;
+    apb2_tim_hz:uint32;
+    pllq_hz:uint32;
+    reset_cause:uint32;
+    reset_cause_text:string;
+    uptime_ms:ulong;
+}
+
+table ListGroups {
+    page:uint16;
+}
+
+table GroupInfo {
+    code:string;
+    name:string;
+    test_count:uint16;
+}
+
+table GroupList {
+    page:uint16;
+    page_count:uint16;
+    total:uint16;
+    groups:[GroupInfo];
+}
+
+table ListTests {
+    group:string;
+    page:uint16;
+}
+
+table TestInfo {
+    id:string;
+    group:string;
+    title:string;
+    level:TestLevel;
+    needs_operator:bool;
+    destructive:bool;
+    timeout_ms:uint32;
+    needs:string;
+    reqs:string;
+}
+
+table TestList {
+    page:uint16;
+    page_count:uint16;
+    total:uint16;
+    tests:[TestInfo];
+}
+
+table GetHarness {
+    page:uint16;
+}
+
+table HarnessWire {
+    name:string;
+    pin_a:string;
+    pin_b:string;
+    used_by:string;
+    fitted:bool;
+    verified:bool;
+}
+
+table HarnessInfo {
+    fitted_mask:ulong;
+    count:uint16;
+    wires:[HarnessWire];
+    page:uint16;
+    page_count:uint16;
+}
+
+table Run {
+    ids:[string];
+    groups:[string];
+    all:bool;
+    levels:string;
+    allow_operator:bool;
+    allow_destructive:bool;
+    repeat:uint32;
+    until_fail:bool;
+}
+
+table OperatorAnswer {
+    prompt_id:uint32;
+    answer:string;
+}
+
+table Abort {
+}
+
+table Measurement {
+    value:double;
+    unit:string;
+    text:string;
+    valid:bool;
+}
+
+table Limits {
+    min:double;
+    max:double;
+    unit:string;
+    text:string;
+    valid:bool;
+}
+
+table TestResult {
+    id:string;
+    group:string;
+    result:TestVerdict;
+    duration_ms:uint32;
+    reason:string;
+    measured:Measurement;
+    limits:Limits;
+    reqs:string;
+}
+
+table GetResults {
+    page:uint16;
+}
+
+table ResultList {
+    page:uint16;
+    page_count:uint16;
+    total:uint16;
+    results:[TestResult];
+}
+
+table ClearResults {
+}
+
+table GetReport {
+}
+
+table Report {
+    text:string;
+    pass:uint16;
+    fail:uint16;
+    skip:uint16;
+    na:uint16;
+    total:uint16;
+    overall_pass:bool;
+}
+
+table GetSetting {
+    key:string;
+}
+
+table SetSetting {
+    key:string;
+    value:string;
+}
+
+table Setting {
+    key:string;
+    value:string;
+    known:bool;
+}
+
+table EnterTextMode {
+}
+
+table RunStarted {
+    total:uint32;
+    resumed:bool;
+}
+
+table TestStarted {
+    id:string;
+    index:uint32;
+    total:uint32;
+}
+
+table OperatorPrompt {
+    prompt_id:uint32;
+    test_id:string;
+    kind:PromptKind;
+    text:string;
+    answers:string;
+    timeout_s:uint32;
+}
+
+table RunFinished {
+    total:uint32;
+    pass:uint16;
+    fail:uint16;
+    skip:uint16;
+    na:uint16;
+    aborted:bool;
+    resumed:bool;
+}
+
+table OperatorPromptDone {
+    prompt_id:uint32;
+    answer:string;
+}
+
+// -------------------------------------------------------------- FACTORY
+
+// Protocol minor 4.  The factory firmware answers these messages instead of
+// the raw proto=0x46 command set.  The .sys/.cal/.diag file bodies are carried
+// unmodified (Option A) as [ubyte] fields; the device still validates the
+// 32-byte header, both CRC-32 values and the chip-UID binding.
+
+enum FactoryKind : ubyte {
+    RAW  = 0,
+    SYS  = 1,
+    CAL  = 2,
+    DIAG = 3
+}
+
+enum CheckResult : ubyte {
+    PASS = 0,
+    FAIL = 1,
+    SKIP = 2
+}
+
+table GetFactoryInfo {
+}
+
+table FactoryInfo {
+    firmware_name:string;
+    version:string;
+    build:string;
+    uid:[ubyte];             // 12 bytes, the factory binding UID
+    flash_mode:FlashMode;
+    window_base:uint32;
+    window_end:uint32;
+    max_chunk:uint16;
+}
+
+table ReadMemory {
+    address:uint32;
+    length:uint16;
+}
+
+table MemoryData {
+    address:uint32;
+    data:[ubyte];
+}
+
+table FactoryWriteBegin {
+    kind:FactoryKind;
+    address:uint32;
+    total:uint16;
+    crc32:uint32;
+}
+
+table FactoryWriteData {
+    offset:uint16;
+    data:[ubyte];
+}
+
+table FactoryWriteEnd {
+}
+
+table FactoryWriteResult {
+    success:bool;
+    crc32:uint32;
+    error:Error;
+    detail:string;
+}
+
+table FactoryDiagInit {
+    address:uint32;
+}
+
+table FactorySelfTest {
+}
+
+table SelfTestItem {
+    check:ubyte;
+    result:CheckResult;
+    value:uint32;
+}
+
+table SelfTestResult {
+    items:[SelfTestItem];
+}
+
+// The union order is part of the wire format. Append new members only.
+union Body {
+    Hello,
+    HelloReply,
+    Ping,
+    Pong,
+    SetBaud,
+    Ack,
+    Nak,
+    Log,
+    Progress,
+    Reset,
+    GetBootInfo,
+    BootInfo,
+    UpdateBegin,
+    UpdateData,
+    UpdateEnd,
+    UpdateResult,
+    Activate,
+    UpdateAbort,
+    SetLed,
+    SetLedAll,
+    ClearFault,
+    EnterBootloader,
+    GetStatus,
+    Status,
+    ButtonEvent,
+    GetDeviceInfo,
+    DeviceInfo,
+    ListGroups,
+    GroupInfo,
+    GroupList,
+    ListTests,
+    TestInfo,
+    TestList,
+    GetHarness,
+    HarnessWire,
+    HarnessInfo,
+    Run,
+    OperatorAnswer,
+    Abort,
+    Measurement,
+    Limits,
+    TestResult,
+    GetResults,
+    ResultList,
+    ClearResults,
+    GetReport,
+    Report,
+    GetSetting,
+    SetSetting,
+    Setting,
+    EnterTextMode,
+    RunStarted,
+    TestStarted,
+    OperatorPrompt,
+    RunFinished,
+    OperatorPromptDone,
+    // Protocol minor 4 (factory rewrite).
+    GetFactoryInfo,
+    FactoryInfo,
+    ReadMemory,
+    MemoryData,
+    FactoryWriteBegin,
+    FactoryWriteData,
+    FactoryWriteEnd,
+    FactoryWriteResult,
+    FactoryDiagInit,
+    FactorySelfTest,
+    SelfTestItem,
+    SelfTestResult
+}
+
+table Message {
+    body:Body;
+}
+
+root_type Message;
