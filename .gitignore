@@ -1,0 +1,46 @@
+# --- Python ---------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Build / packaging (PyInstaller, installers) -------------
+build/
+dist/
+*.spec.bak
+*.dmg
+*.msi
+*.AppImage
+*.deb
+
+# --- Generated protocol code ---------------------------------
+src/**/hwlink_generated/
+
+# --- Local data ----------------------------------------------
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.log
+
+# --- Editor / OS ---------------------------------------------
+.vscode/*
+!.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+*~
+
+# --- Secrets -------------------------------------------------
+.env
+*.env
+
+# --- Station data (never commit) -----------------------------
+station.yaml
+profiles/
+*.zpl.out
