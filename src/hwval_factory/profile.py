@@ -606,8 +606,19 @@ def load_profile(
             _tempdir=tempdir,
         )
         profile.check_factory_version()
-        if require_signature and not profile.verify_signature(public_key):
-            raise ProfileError("profile signature is required and could not be verified")
+        if require_signature:
+            if not public_key:
+                # A key shipped inside the same manifest proves nothing: an
+                # attacker can replace both.  Require the operator/station
+                # to supply the trusted key.
+                raise ProfileError(
+                    "a trusted profile public key is required when signatures "
+                    "are enforced; the key inside the manifest is not trusted"
+                )
+            if not profile.verify_signature(public_key):
+                raise ProfileError(
+                    "profile signature is required and could not be verified"
+                )
         return profile
     except Exception:
         if tempdir is not None:
