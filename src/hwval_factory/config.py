@@ -52,6 +52,16 @@ class MesConfig:
 
 
 @dataclass(slots=True)
+class ScannerConfig:
+    mode: str = "hid"          # hid | serial
+    serial_port: str = ""
+    baudrate: int = 9600
+    prefix: str = ""
+    suffix: str = ""
+    fixture: str = ""          # optional per-fixture routing
+
+
+@dataclass(slots=True)
 class OpenOcdConfig:
     binary: str = "openocd"
     interface_cfg: str = "interface/stlink.cfg"
@@ -73,6 +83,7 @@ class StationConfig:
     labels_dir: Path = Path("labels")
     certificates_dir: Path = Path("certificates")
     openocd: OpenOcdConfig = field(default_factory=OpenOcdConfig)
+    scanner: ScannerConfig = field(default_factory=ScannerConfig)
     session_timeout_minutes: int = 30
     retest_after_failures: int = 2
     self_test_interval_hours: int = 24
@@ -143,6 +154,14 @@ class StationConfig:
                 "interface_cfg": self.openocd.interface_cfg,
                 "target_cfg": self.openocd.target_cfg,
                 "telnet_base_port": self.openocd.telnet_base_port,
+            },
+            "scanner": {
+                "mode": self.scanner.mode,
+                "serial_port": self.scanner.serial_port,
+                "baudrate": self.scanner.baudrate,
+                "prefix": self.scanner.prefix,
+                "suffix": self.scanner.suffix,
+                "fixture": self.scanner.fixture,
             },
             "security": {
                 "session_timeout_minutes": self.session_timeout_minutes,
@@ -286,10 +305,12 @@ def load_station_config(path: str | Path | None) -> StationConfig:
     printer_raw = raw.get("printer") or {}
     mes_raw = raw.get("mes") or {}
     security = raw.get("security") or {}
+    scanner_raw = raw.get("scanner") or {}
     if (
         not isinstance(printer_raw, dict)
         or not isinstance(mes_raw, dict)
         or not isinstance(security, dict)
+        or not isinstance(scanner_raw, dict)
     ):
         raise ConfigError("[printer], [mes] and [security] must be mappings")
     config = StationConfig(
@@ -320,6 +341,14 @@ def load_station_config(path: str | Path | None) -> StationConfig:
         labels_dir=Path(str(raw.get("labels_dir") or "labels")),
         certificates_dir=Path(str(raw.get("certificates_dir") or "certificates")),
         openocd=openocd,
+        scanner=ScannerConfig(
+            mode=str(scanner_raw.get("mode") or "hid").strip().lower(),
+            serial_port=str(scanner_raw.get("serial_port") or ""),
+            baudrate=_as_int(scanner_raw.get("baudrate"), 9600),
+            prefix=str(scanner_raw.get("prefix") or ""),
+            suffix=str(scanner_raw.get("suffix") or ""),
+            fixture=str(scanner_raw.get("fixture") or ""),
+        ),
         session_timeout_minutes=_as_int(security.get("session_timeout_minutes"), 30),
         retest_after_failures=_as_int(security.get("retest_after_failures"), 2),
         self_test_interval_hours=_as_int(security.get("self_test_interval_hours"), 24),
@@ -355,6 +384,10 @@ def validate_station_config(config: StationConfig) -> None:
         raise ConfigError("fixture telnet ports must be unique")
     if config.session_timeout_minutes < 0:
         raise ConfigError("session timeout cannot be negative")
+    if config.scanner.mode not in ("hid", "serial", "off"):
+        raise ConfigError("scanner.mode must be hid, serial or off")
+    if config.scanner.mode == "serial" and not config.scanner.serial_port:
+        raise ConfigError("scanner.serial_port is required in serial mode")
 
 
 def default_station(simulated: bool = True, fixture_count: int = 4) -> StationConfig:

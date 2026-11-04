@@ -96,8 +96,9 @@ hwval-factory-ui --simulate --fixtures 4
   matching by probe serial, pluggable power control, insertion/maintenance
   counters, and a golden-board self-test that blocks production when due.
 * **UI** — large fixture tiles (PASS/FAIL/icon/word/colour/sound), live fixture
-  detail, yield dashboard with Pareto and cycle times, unit history, scanner
-  routing without focus, F1–F8 shortcuts, kiosk mode and the full menu set.
+  detail, yield dashboard with Pareto and cycle times, unit history, HID and
+  serial scanner routing without focus, F1–F8 shortcuts, kiosk mode and the
+  full menu set.
 * **Access** — badge or ID/PIN login, operator/supervisor/engineer/administrator
   roles, salted scrypt PINs, idle session lock.
 * **Simulator** — simulated STM32F767ZI chip with the real sector map,

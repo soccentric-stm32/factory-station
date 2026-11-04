@@ -31,6 +31,7 @@ The factory-side P0 contract work is implemented and covered by `make test`:
 | D-03 serial templates with standard tokens | done (pre-printed-label reservation uses the normal serial range) |
 | E-01/E-02 protection order, post-protection boot check, RDP 2 blocked | done |
 | F-05/F-06 self-test expiry and insertion maintenance block production | done |
+| F-08 HID and serial barcode scanners with prefix/suffix and fixture routing | done |
 | J-01/J-02 pytest suite and cross-repo contract checks | done |
 | J-03 pytest-qt UI smoke, scenario CLI and MES idempotency | done |
 | J-05 ruff and mypy gates | done |

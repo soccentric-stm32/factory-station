@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import queue
 import threading
 import time
@@ -137,6 +138,52 @@ class ScannerRouter(QObject):
         return False
 
 
+class _SerialScannerThread(QThread):
+    """Read prefix/suffix-trimmed barcodes from a serial scanner."""
+
+    scanned = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, port: str, baudrate: int, prefix: str, suffix: str, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self.port = port
+        self.baudrate = baudrate
+        self.prefix = prefix
+        self.suffix = suffix
+        self._running = True
+        self._serial: Any = None
+
+    def run(self) -> None:
+        try:
+            import serial
+
+            self._serial = serial.Serial(self.port, self.baudrate, timeout=0.2)
+        except Exception as exc:
+            self.failed.emit(f"serial scanner {self.port}: {exc}")
+            return
+        while self._running:
+            try:
+                raw = self._serial.readline().decode("utf-8", "replace").strip()
+            except Exception as exc:
+                if self._running:
+                    self.failed.emit(f"serial scanner read failed: {exc}")
+                break
+            if not raw:
+                continue
+            text = raw
+            if self.prefix and text.startswith(self.prefix):
+                text = text[len(self.prefix) :]
+            if self.suffix and text.endswith(self.suffix):
+                text = text[: -len(self.suffix)]
+            if text:
+                self.scanned.emit(text.strip())
+        with contextlib.suppress(Exception):
+            self._serial.close()
+
+    def stop(self) -> None:
+        self._running = False
+
+
 class StationWindow(QMainWindow):
     _pass_value: QLabel
     _fail_value: QLabel
@@ -177,6 +224,18 @@ class StationWindow(QMainWindow):
             activity=lambda: self.auth.session.touch() if self.auth.session is not None else None,
         )
         QApplication.instance().installEventFilter(self._scanner)  # type: ignore[union-attr]
+        self._serial_scanner: _SerialScannerThread | None = None
+        if config.scanner.mode == "serial":
+            self._serial_scanner = _SerialScannerThread(
+                config.scanner.serial_port,
+                config.scanner.baudrate,
+                config.scanner.prefix,
+                config.scanner.suffix,
+                self,
+            )
+            self._serial_scanner.scanned.connect(self._serial_scanned)
+            self._serial_scanner.failed.connect(self.statusBar().showMessage)
+            self._serial_scanner.start()
         self.setWindowTitle(f"{APP_NAME} — {config.station_name}")
         self.resize(1600, 980)
         self._build_ui()
@@ -613,6 +672,15 @@ class StationWindow(QMainWindow):
             self.statusBar().showMessage(f"Scanned {text} for fixture {routed}")
         else:
             self.statusBar().showMessage(f"Scan {text} ignored: no fixture waiting")
+
+    def _serial_scanned(self, text: str) -> None:
+        target = self.config.scanner.fixture
+        if target:
+            routed = self.station.submit_scan(text, target)
+            if routed:
+                self.statusBar().showMessage(f"Scanned {text} for fixture {routed}")
+                return
+        self._scanned(text)
 
     def _on_tick(self) -> None:
         self._tick += 1
@@ -1110,6 +1178,10 @@ class StationWindow(QMainWindow):
                 event.ignore()
                 return
         QApplication.instance().removeEventFilter(self._scanner)  # type: ignore[union-attr]
+        if self._serial_scanner is not None:
+            self._serial_scanner.stop()
+            self._serial_scanner.wait(2000)
+            self._serial_scanner = None
         self._timer.stop()
         self._probe_timer.stop()
         for thread in list(self._threads):
