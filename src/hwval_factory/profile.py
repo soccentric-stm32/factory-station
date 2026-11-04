@@ -172,6 +172,8 @@ class ProtectionSpec:
     wrp_bank1: list[int] = field(default_factory=lambda: [0, 1])
     wrp_bank2: list[int] = field(default_factory=lambda: [1])
     rdp: int = 0
+    boot_addr0: int = 0x0080
+    boot_addr1: int = 0x0040
     optcr: int | None = None
     optcr1: int | None = None
 
@@ -186,6 +188,12 @@ class ProtectionSpec:
             if not 0 <= sector <= 11:
                 raise ProfileError(f"invalid WRP sector {sector}")
 
+    @staticmethod
+    def _bor_field(level: int) -> int:
+        # RM0410 FLASH_OPTCR.BOR_LEV: 00 off, 01 level 3, 10 level 2,
+        # 11 level 1.  Profiles name the level, not the raw field.
+        return {0: 0, 3: 1, 2: 2, 1: 3}.get(level, 1)
+
     def computed_optcr(self) -> int:
         if self.optcr is not None:
             return self.optcr & 0xFFFFFFFF
@@ -193,11 +201,12 @@ class ProtectionSpec:
         for sector in self.wrp_bank1:
             wrp1 &= ~(1 << sector)
         value = (wrp1 & 0xFFF) << 16
-        value |= (self.rdp & 0xFF) << 8
+        # RDP level 0 is 0xAA on the wire; 0x00 always means level 1.
+        value |= (0xAA if self.rdp == 0 else 0x00) << 8
         value |= 1 << 5  # WDG_SW
         value |= 1 << 6  # nRST_STOP
         value |= 1 << 7  # nRST_STDBY
-        value |= (self.bor_lev & 0x3) << 2
+        value |= (self._bor_field(self.bor_lev) & 0x3) << 2
         value |= (self.ndboot & 1) << 28
         value |= (self.ndbank & 1) << 29
         return value & 0xFFFFFFFF
@@ -205,10 +214,11 @@ class ProtectionSpec:
     def computed_optcr1(self) -> int:
         if self.optcr1 is not None:
             return self.optcr1 & 0xFFFFFFFF
-        wrp2 = 0xFFF
-        for sector in self.wrp_bank2:
-            wrp2 &= ~(1 << sector)
-        return wrp2 & 0xFFF
+        # OPTCR1 is BOOT_ADD0[15:0] | BOOT_ADD1[31:16]; keep both.  Writing
+        # only the WRP field here used to zero them and lose the ST ROM
+        # bootloader entry (BOOT_ADD1 default 0x0040).
+        return ((self.boot_addr0 & 0xFFFF) |
+                ((self.boot_addr1 & 0xFFFF) << 16)) & 0xFFFFFFFF
 
     def as_dict(self) -> dict[str, Any]:
         return {
