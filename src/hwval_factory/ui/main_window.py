@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFileDialog,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
@@ -24,7 +25,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QTabWidget,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -42,6 +43,7 @@ from hwval_factory.ui.dashboard import DashboardView
 from hwval_factory.ui.fixture_detail import FixtureDetailDialog
 from hwval_factory.ui.history import HistoryView
 from hwval_factory.ui.login import LoginDialog, PinChangeDialog, SupervisorDialog
+from hwval_factory.ui.sidebar import Sidebar
 from hwval_factory.ui.supervisor import (
     FixturesDialog,
     OperatorPromptDialog,
@@ -194,65 +196,88 @@ class StationWindow(QMainWindow):
     def _build_ui(self) -> None:
         root = QWidget()
         root.setObjectName("Root")
-        layout = QVBoxLayout(root)
+        layout = QHBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self._header())
 
-        self.tabs = QTabWidget()
-        self.tabs.setContentsMargins(14, 12, 14, 10)
-        self.tabs.addTab(self._station_page(), "Station")
+        self.sidebar = Sidebar(APP_NAME, self.config.station_name, self.config.station_id)
+        self.sidebar.set_version(__version__)
+        role = self.auth.session.role.value if self.auth.session is not None else ""
+        self.sidebar.set_user(self._operator(), role)
+        self.sidebar.section_changed.connect(self._show_section)
+        self.sidebar.action_requested.connect(self._sidebar_action)
+        layout.addWidget(self.sidebar)
+
+        content = QWidget()
+        content.setObjectName("Content")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        content_layout.addWidget(self._header())
+
+        self.pages = QStackedWidget()
+        self.pages.setObjectName("Pages")
+        self.station_page = self._station_page()
         self.dashboard = DashboardView(self.db)
-        self.tabs.addTab(self.dashboard, "Dashboard")
         self.history = HistoryView(
             self.db,
             certificates_dir=self.config.certificates_dir,
             labels_dir=self.config.labels_dir,
         )
         self.history.reprint_requested.connect(self.reprint_label)
-        self.tabs.addTab(self.history, "Unit history")
-        self.tabs.currentChanged.connect(self._tab_changed)
-        layout.addWidget(self.tabs, 1)
+        self.pages.addWidget(self.station_page)
+        self.pages.addWidget(self.dashboard)
+        self.pages.addWidget(self.history)
+        self._section_keys = {0: "station", 1: "dashboard", 2: "history"}
+        self._section_index = {value: key for key, value in self._section_keys.items()}
+        self._section_titles = {
+            "station": "Station",
+            "dashboard": "Dashboard",
+            "history": "Unit history",
+        }
+        self.pages.currentChanged.connect(self._tab_changed)
+        # Backwards-compatible alias for menus and event handlers.
+        self.tabs = self.pages
+
+        content_layout.addWidget(self.pages, 1)
+        layout.addWidget(content, 1)
         self.setCentralWidget(root)
         self.statusBar().showMessage(
             f"Signed in as {self._operator()} · profile {self.profile.display}"
         )
 
     def _header(self) -> QWidget:
-        header = QWidget()
-        header.setObjectName("Header")
-        header.setStyleSheet(
-            f"QWidget#Header {{ background: {COLORS['surface']}; "
-            f"border-bottom: 1px solid {COLORS['border']}; }}"
-        )
+        header = QFrame()
+        header.setObjectName("Toolbar")
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(18, 10, 18, 10)
+        layout.setContentsMargins(22, 12, 22, 12)
         layout.setSpacing(18)
-        logo = QLabel()
-        logo.setPixmap(icon("logo", COLORS["accent"], 34).pixmap(34, 34))
-        names = QVBoxLayout()
-        title = QLabel(APP_NAME)
-        title.setStyleSheet("font-size: 23px; font-weight: 700;")
-        self.station_label = QLabel(f"{self.config.station_id} · {self.config.station_name}")
-        self.station_label.setObjectName("Muted")
-        names.addWidget(title)
-        names.addWidget(self.station_label)
-        layout.addWidget(logo)
-        layout.addLayout(names)
-        layout.addSpacing(16)
+
         identity = QVBoxLayout()
+        identity.setSpacing(1)
+        self.section_title = QLabel("Station")
+        self.section_title.setObjectName("ToolbarTitle")
         self.profile_label = QLabel(self.profile.display)
-        self.profile_label.setStyleSheet("font-size: 18px; font-weight: 600;")
+        self.profile_label.setObjectName("ToolbarProfile")
+        self.station_label = QLabel(f"{self.config.station_id} · {self.config.station_name}")
+        self.station_label.setObjectName("ToolbarSubtitle")
         self.operator_label = QLabel("")
-        self.operator_label.setObjectName("Muted")
+        self.operator_label.setObjectName("ToolbarSubtitle")
         self.work_order_label = QLabel("")
-        self.work_order_label.setObjectName("Muted")
+        self.work_order_label.setObjectName("ToolbarSubtitle")
+        identity.addWidget(self.section_title)
         identity.addWidget(self.profile_label)
-        identity.addWidget(self.operator_label)
-        identity.addWidget(self.work_order_label)
+        identity.addWidget(self.station_label)
+        meta = QHBoxLayout()
+        meta.setSpacing(14)
+        meta.addWidget(self.operator_label)
+        meta.addWidget(self.work_order_label)
+        identity.addLayout(meta)
         layout.addLayout(identity)
         layout.addStretch(1)
+
         counts = QHBoxLayout()
+        counts.setSpacing(18)
         self.pass_card = self._metric("PASS", "0", COLORS["pass"])
         self.fail_card = self._metric("FAIL", "0", COLORS["fail"])
         self.fpy_card = self._metric("FPY", "0 %", COLORS["accent"])
@@ -260,15 +285,13 @@ class StationWindow(QMainWindow):
         counts.addLayout(self.fail_card)
         counts.addLayout(self.fpy_card)
         layout.addLayout(counts)
+
         self.mes_label = QLabel("MES queue 0")
+        self.mes_label.setObjectName("ToolbarBadge")
         self.mes_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.mes_label.setStyleSheet(
-            f"background: {COLORS['surface_alt']}; border: 1px solid {COLORS['border']}; "
-            "border-radius: 9px; padding: 8px 12px;"
-        )
         layout.addWidget(self.mes_label)
         self.session_label = QLabel("")
-        self.session_label.setObjectName("Muted")
+        self.session_label.setObjectName("ToolbarSubtitle")
         layout.addWidget(self.session_label)
         return header
 
@@ -276,11 +299,12 @@ class StationWindow(QMainWindow):
         layout = QVBoxLayout()
         layout.setSpacing(0)
         label = QLabel(title)
-        label.setObjectName("Muted")
+        label.setObjectName("ToolbarMetricLabel")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         value_label = QLabel(value)
+        value_label.setObjectName("ToolbarMetric")
         value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        value_label.setStyleSheet(f"font-size: 26px; font-weight: 700; color: {color};")
+        value_label.setStyleSheet(f"color: {color};")
         layout.addWidget(label)
         layout.addWidget(value_label)
         setattr(self, f"_{title.lower()}_value", value_label)
@@ -289,8 +313,8 @@ class StationWindow(QMainWindow):
     def _station_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(14, 12, 14, 8)
-        layout.setSpacing(10)
+        layout.setContentsMargins(22, 18, 22, 16)
+        layout.setSpacing(12)
         controls = QHBoxLayout()
         start_all = QPushButton(icon("play", "white", 18), "Start all")
         start_all.setObjectName("Primary")
@@ -369,10 +393,13 @@ class StationWindow(QMainWindow):
         self._action(tools, "Change PIN…", self.change_pin)
 
         view = menu.addMenu("&View")
-        self._action(view, "Station", lambda: self.tabs.setCurrentIndex(0))
-        self._action(view, "Dashboard", lambda: self.tabs.setCurrentIndex(1))
+        self._action(view, "Station", lambda: self.tabs.setCurrentIndex(0), "Ctrl+1")
+        self._action(view, "Dashboard", lambda: self.tabs.setCurrentIndex(1), "Ctrl+2")
+        self._action(view, "Unit history", lambda: self.tabs.setCurrentIndex(2), "Ctrl+3")
+        view.addSeparator()
         self.kiosk_action = QAction("Kiosk mode", self)
         self.kiosk_action.setCheckable(True)
+        self.kiosk_action.setShortcut(QKeySequence("Ctrl+Shift+K"))
         self.kiosk_action.triggered.connect(self.toggle_kiosk)
         view.addAction(self.kiosk_action)
 
@@ -640,10 +667,11 @@ class StationWindow(QMainWindow):
             if self._detail is not None and self._detail.fixture == name:
                 self._detail.refresh()
         self.operator_label.setText(f"Operator: {self._operator()}")
+        role = ""
         if self.auth.session is not None:
             role = self.auth.session.role.value
-            remaining = ""
-            self.session_label.setText(f"{role}{remaining}")
+            self.session_label.setText(role.title())
+        self.sidebar.set_user(self._operator(), role)
         wo = self.station.work_order
         if wo is not None:
             counts = self.station.serial_service.usage(wo.name)
@@ -654,7 +682,9 @@ class StationWindow(QMainWindow):
         self._pass_value.setText(str(stats["passed"]))
         self._fail_value.setText(str(stats["failed"]))
         self._fpy_value.setText(f"{stats['fpy']:.0f} %")
-        self.mes_label.setText(f"MES queue {self.station.mes_queue_length()}")
+        mes_length = self.station.mes_queue_length()
+        self.mes_label.setText(f"MES queue {mes_length}")
+        self.sidebar.set_mes_queue(mes_length)
         if self.auth.session is not None and self.auth.lock_if_idle(
             self.config.session_timeout_minutes
         ):
@@ -690,11 +720,33 @@ class StationWindow(QMainWindow):
         self.statusBar().showMessage(f"Signed in as {self._operator()}")
 
     def _tab_changed(self, index: int) -> None:
+        section = self._section_keys.get(index)
+        if section is not None:
+            self.sidebar.set_active(section)
+            self.section_title.setText(self._section_titles.get(section, "Station"))
         if self.tabs.widget(index) is self.dashboard:
             self.dashboard.set_work_orders([row["name"] for row in self.db.work_orders()])
             self.dashboard.refresh()
         elif self.tabs.widget(index) is self.history:
             self.history.refresh()
+
+    def _show_section(self, section: str) -> None:
+        index = self._section_index.get(section)
+        if index is not None:
+            self.pages.setCurrentIndex(index)
+
+    def _sidebar_action(self, action: str) -> None:
+        callbacks: dict[str, Callable[[], Any]] = {
+            "start_all": self.start_all,
+            "abort_all": self.station.abort_all,
+            "select_wo": self.select_work_order,
+            "self_test": self.self_test,
+            "profiles": self.show_profiles,
+            "printer": self.show_printer,
+        }
+        callback = callbacks.get(action)
+        if callback is not None:
+            callback()
 
     # -- menus --------------------------------------------------------
     def _run_background(

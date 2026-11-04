@@ -1,14 +1,21 @@
 # HWVAL Factory — operator quick guide
 
-One page per screen. The station is normally in **kiosk mode**, so only the
-station view is visible.
+One page per screen. The station is normally in **kiosk mode**, so the
+workspace opens on the station view.
+
+The macOS-style sidebar on the left switches between **Station**, **Dashboard**
+and **Unit history**, and offers quick actions for Start all, Abort all, work
+orders, self-test, profiles and the label printer. Use **Cmd/Ctrl+1**, **2** and
+**3** as shortcuts.
 
 ## Sign in
 
 1. Scan your badge, or choose **ID and PIN**, enter your user name and PIN, and
    press **Sign in**.
-2. The header always shows the active product profile and version, your user
-   name, the work order, pass/fail counts, FPY and the MES queue length.
+2. The toolbar always shows the current view, the active product profile and
+   version, the station, your user name, the work order, pass/fail counts, FPY
+   and the MES queue length. Your account and role are also shown at the bottom
+   of the sidebar.
 3. The session locks after the configured idle time; sign in again to unlock.
 
 ## Station view

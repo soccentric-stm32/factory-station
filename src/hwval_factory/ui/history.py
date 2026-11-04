@@ -41,7 +41,7 @@ class HistoryView(QWidget):
         self.certificates_dir = Path(certificates_dir)
         self.labels_dir = Path(labels_dir)
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(22, 18, 22, 16)
         root.setSpacing(10)
         title = QLabel("Unit history")
         title.setObjectName("Heading")

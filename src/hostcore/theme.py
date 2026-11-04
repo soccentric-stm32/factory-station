@@ -26,6 +26,11 @@ COLORS: dict[str, str] = {
     "warn": "#B25000",
     "warn_bg": "#FFF4E5",
     "error": "#6E6E73",
+    "sidebar": "#F2F2F7",
+    "sidebar_border": "#D9D9DE",
+    "sidebar_hover": "#E7E7EC",
+    "sidebar_selected": "#DCE8FB",
+    "sidebar_selected_text": "#0058B0",
     "shadow": "rgba(0, 0, 0, 0.10)",
 }
 
@@ -55,6 +60,7 @@ _ICONS: dict[str, str] = {
     "settings": '<circle cx="12" cy="12" r="3" fill="none" stroke="{c}" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" stroke="{c}" stroke-width="1.6"/>',
     "search": '<circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="{c}" stroke-width="1.8"/><path d="M15.5 15.5L21 21" stroke="{c}" stroke-width="2" stroke-linecap="round"/>',
     "dashboard": '<rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="{c}" stroke-width="1.8"/><rect x="13" y="3" width="8" height="5" rx="1" fill="none" stroke="{c}" stroke-width="1.8"/><rect x="13" y="10" width="8" height="11" rx="1" fill="none" stroke="{c}" stroke-width="1.8"/><rect x="3" y="13" width="8" height="8" rx="1" fill="none" stroke="{c}" stroke-width="1.8"/>',
+    "chart": '<rect x="3" y="12" width="4" height="8" rx="1" fill="none" stroke="{c}" stroke-width="1.8"/><rect x="10" y="7" width="4" height="13" rx="1" fill="none" stroke="{c}" stroke-width="1.8"/><rect x="17" y="3" width="4" height="17" rx="1" fill="none" stroke="{c}" stroke-width="1.8"/>',
     "history": '<path d="M3 12a9 9 0 109-9" fill="none" stroke="{c}" stroke-width="1.8"/><path d="M3 4v8h8" fill="none" stroke="{c}" stroke-width="1.8"/><path d="M12 7v5l3 2" fill="none" stroke="{c}" stroke-width="1.8"/>',
     "label": '<path d="M3 7h13l5 5-5 5H3z" fill="none" stroke="{c}" stroke-width="1.8"/><circle cx="8" cy="12" r="1.5" fill="{c}"/>',
     "lock": '<rect x="5" y="10" width="14" height="11" rx="2" fill="none" stroke="{c}" stroke-width="1.8"/><path d="M8 10V7a4 4 0 018 0v3" fill="none" stroke="{c}" stroke-width="1.8"/>',
@@ -105,6 +111,84 @@ def apply_theme(app: object) -> None:
             color: {c["text"]};
         }}
         QMainWindow, QWidget#Root {{ background: {c["bg"]}; }}
+        QWidget#Content, QStackedWidget#Pages {{ background: {c["bg"]}; }}
+        QFrame#Sidebar {{
+            background: {c["sidebar"]};
+            border-right: 1px solid {c["sidebar_border"]};
+        }}
+        QLabel#SidebarTitle {{ font-size: 17px; font-weight: 700; }}
+        QLabel#SidebarMuted {{ color: {c["muted"]}; font-size: 11px; }}
+        QLabel#SidebarSection {{
+            color: #8E8E93;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 8px 8px 2px 8px;
+        }}
+        QLabel#SidebarUser {{ font-size: 13px; font-weight: 600; }}
+        QLabel#SidebarAvatar {{
+            background: {c["sidebar_selected"]};
+            color: {c["sidebar_selected_text"]};
+            border-radius: 17px;
+            font-size: 13px;
+            font-weight: 700;
+        }}
+        QLabel#SidebarBadge {{
+            background: {c["warn_bg"]};
+            color: {c["warn"]};
+            border-radius: 7px;
+            padding: 3px 7px;
+            font-size: 11px;
+            font-weight: 600;
+        }}
+        QLabel#SidebarVersion {{ color: #A1A1A6; font-size: 10px; }}
+        QFrame#SidebarFooter {{
+            background: transparent;
+            border-top: 1px solid {c["sidebar_border"]};
+        }}
+        QPushButton#SidebarItem {{
+            background: transparent;
+            border: none;
+            border-radius: 7px;
+            padding: 7px 9px;
+            text-align: left;
+            font-size: 14px;
+            color: {c["text"]};
+        }}
+        QPushButton#SidebarItem:hover {{ background: {c["sidebar_hover"]}; }}
+        QPushButton#SidebarItem:checked {{
+            background: {c["sidebar_selected"]};
+            color: {c["sidebar_selected_text"]};
+            font-weight: 600;
+        }}
+        QPushButton#SidebarAction {{
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            padding: 5px 9px;
+            text-align: left;
+            font-size: 13px;
+            color: {c["muted"]};
+        }}
+        QPushButton#SidebarAction:hover {{
+            background: {c["sidebar_hover"]};
+            color: {c["text"]};
+        }}
+        QFrame#Toolbar {{
+            background: {c["surface"]};
+            border-bottom: 1px solid {c["border"]};
+        }}
+        QLabel#ToolbarTitle {{ font-size: 21px; font-weight: 700; }}
+        QLabel#ToolbarProfile {{ color: {c["text"]}; font-size: 13px; font-weight: 600; }}
+        QLabel#ToolbarSubtitle {{ color: {c["muted"]}; font-size: 12px; }}
+        QLabel#ToolbarMetric {{ font-size: 22px; font-weight: 700; }}
+        QLabel#ToolbarMetricLabel {{ color: {c["muted"]}; font-size: 10px; font-weight: 700; }}
+        QLabel#ToolbarBadge {{
+            background: {c["surface_alt"]};
+            border: 1px solid {c["border"]};
+            border-radius: 9px;
+            padding: 6px 10px;
+            font-size: 12px;
+        }}
         QFrame#Card {{
             background: {c["surface"]};
             border: 1px solid {c["border"]};

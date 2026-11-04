@@ -81,7 +81,7 @@ class DashboardView(QWidget):
         super().__init__(parent)
         self.db = db
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(22, 18, 22, 16)
         root.setSpacing(12)
 
         controls = QHBoxLayout()
