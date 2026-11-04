@@ -30,7 +30,7 @@ from hwval_factory.identity import (
 FLASH_BASE = 0x08000000
 FLASH_SIZE = 2 * 1024 * 1024
 DBGMCU_IDCODE = 0xE0042000
-FLASH_SIZE_REG = 0x1FF0F42C
+FLASH_SIZE_REG = 0x1FF0F442
 UID_BASE = 0x1FF0F420
 OPTCR = 0x40023C14
 OPTCR1 = 0x40023C18
@@ -274,6 +274,12 @@ class SimulatedOpenOcd:
         if self.chip.offset_ok(address):
             return int.from_bytes(self.chip.read(address, 4), "little")
         return 0
+
+    def read_u16(self, address: int) -> int:
+        self._maybe_fault()
+        if address == FLASH_SIZE_REG:
+            return self.chip.flash_kb
+        return self.read_u32(address & ~1) & 0xFFFF
 
     def read_memory(self, address: int, length: int) -> bytes:
         self._maybe_fault()

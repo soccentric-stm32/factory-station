@@ -72,6 +72,7 @@ class OpenOcdBackend(Protocol):
     def program(self, path: str | Path, address: int | None = None, verify: bool = True) -> None: ...
     def verify_image(self, path: str | Path, address: int | None = None) -> None: ...
     def read_u32(self, address: int) -> int: ...
+    def read_u16(self, address: int) -> int: ...
     def read_memory(self, address: int, length: int) -> bytes: ...
     def write_memory(self, address: int, data: bytes) -> None: ...
     def read_option_bytes(self) -> OptionBytes: ...
@@ -288,6 +289,15 @@ class OpenOcdProcess:
         match = re.search(r"0x[0-9a-fA-F]+:\s*(0x[0-9a-fA-F]+)", output)
         if not match:
             raise OpenOcdError(f"cannot parse mdw output: {output}")
+        return int(match.group(1), 16)
+
+    def read_u16(self, address: int) -> int:
+        # The flash-size register is 16-bit and halfword aligned; mdw at
+        # 0x1FF0F442 is not word aligned.
+        output = self.command(f"mdh 0x{address:08X} 1")
+        match = re.search(r"0x[0-9a-fA-F]+:\s*(0x[0-9a-fA-F]+)", output)
+        if not match:
+            raise OpenOcdError(f"cannot parse mdh output: {output}")
         return int(match.group(1), 16)
 
     def read_memory(self, address: int, length: int) -> bytes:

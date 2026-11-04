@@ -82,7 +82,7 @@ from hwval_factory.serials import (
 from hwval_factory.simulator import SimulatedStation, SimulationBank
 
 DBGMCU_IDCODE = 0xE0042000
-FLASH_SIZE_REG = 0x1FF0F42C
+FLASH_SIZE_REG = 0x1FF0F442
 UID_BASE = 0x1FF0F420
 DEFAULT_SLOT_A = 0x08020000
 DEFAULT_METADATA_BASE = 0x0801F000
@@ -934,7 +934,7 @@ class Station:
         idcode = backend.read_u32(DBGMCU_IDCODE)
         dev_id = idcode & 0xFFF
         rev_id = (idcode >> 16) & 0xFFFF
-        flash_kb = backend.read_u32(FLASH_SIZE_REG) & 0xFFFF
+        flash_kb = backend.read_u16(FLASH_SIZE_REG)
         uid = backend.read_memory(UID_BASE, 12)
         if len(uid) != 12:
             raise StepFailure("could not read the 96-bit chip UID")
