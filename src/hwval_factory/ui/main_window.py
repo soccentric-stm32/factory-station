@@ -377,6 +377,7 @@ class StationWindow(QMainWindow):
         self._action(station_menu, "Abort all", self.station.abort_all, "Ctrl+Shift+A")
         station_menu.addSeparator()
         self._action(station_menu, "Self-test…", self.self_test)
+        self._action(station_menu, "Hardware bring-up…", self.hardware_bringup)
         self._action(station_menu, "Fixtures…", self.show_fixtures)
 
         wo_menu = menu.addMenu("&Work Order")
@@ -942,6 +943,44 @@ class StationWindow(QMainWindow):
             self, "Permission", f"{role.value.title()} permission is required to {action}."
         )
         return False
+
+    def hardware_bringup(self) -> None:
+        if not self._require_role(Role.ENGINEER, "run hardware bring-up"):
+            return
+        names = self.station.fixture_names()
+        if not names:
+            return
+        choice, ok = QInputDialog.getItem(self, "Hardware bring-up", "Fixture:", names, 0, False)
+        if not ok:
+            return
+        self.statusBar().showMessage(f"Bring-up checks for {choice} running…")
+        thread = _FunctionThread(lambda: self.station.probe_fixture(choice), self)
+
+        def _done(steps: Any, error: str) -> None:
+            self._threads.remove(thread)
+            self.statusBar().clearMessage()
+            if error:
+                QMessageBox.critical(self, "Hardware bring-up", error)
+                return
+            lines = [
+                f"{'PASS' if step['ok'] else 'FAIL'}  {step['name']}: {step['detail']}"
+                for step in steps or []
+            ]
+            text = "\n".join(lines) or "no checks ran"
+            box = QMessageBox(self)
+            box.setWindowTitle(f"Hardware bring-up — {choice}")
+            box.setIcon(
+                QMessageBox.Icon.Information
+                if all(step.get("ok") for step in steps or [])
+                else QMessageBox.Icon.Warning
+            )
+            box.setText(text)
+            box.setDetailedText(text)
+            box.exec()
+
+        thread.finished_with_result.connect(_done)
+        self._threads.append(thread)
+        thread.start()
 
     def self_test(self) -> None:
         if not self._require_role(Role.SUPERVISOR, "run a station self-test"):

@@ -13,7 +13,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -247,6 +247,38 @@ class Database:
             else:
                 conn.execute("COMMIT")
 
+    def integrity_check(self) -> None:
+        with self._lock:
+            row = self._conn().execute("PRAGMA quick_check").fetchone()
+        status = "" if row is None else str(row[0])
+        if status.lower() != "ok":
+            raise sqlite3.DatabaseError(f"database integrity check failed: {status}")
+
+    def backup(self, *, keep: int = 7) -> Path | None:
+        """Make one daily SQLite backup and rotate old copies."""
+        if not self.path.is_file() or self.path.stat().st_size == 0:
+            return None
+        folder = self.path.parent / "backups"
+        folder.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(UTC).strftime("%Y%m%d")
+        target = folder / f"{self.path.stem}-{stamp}.sqlite"
+        if target.exists():
+            return target
+        source = sqlite3.connect(self.path)
+        try:
+            destination = sqlite3.connect(target)
+            try:
+                source.backup(destination)
+            finally:
+                destination.close()
+        finally:
+            source.close()
+        backups = sorted(folder.glob(f"{self.path.stem}-*.sqlite"))
+        for old in backups[:-max(1, keep)]:
+            with suppress(OSError):
+                old.unlink()
+        return target
+
     def initialize(self, *, mark_interrupted: bool = True) -> None:
         # A second station/CLI process may be starting against the same
         # database.  Schema creation is idempotent, so retry a transient
@@ -262,6 +294,9 @@ class Database:
                 if "locked" not in str(exc).lower() or attempt >= 5:
                     raise
                 time.sleep(0.4 * (attempt + 1))
+        self.integrity_check()
+        with suppress(sqlite3.DatabaseError, OSError):
+            self.backup()
         if not mark_interrupted:
             return
         self.mark_interrupted_runs()

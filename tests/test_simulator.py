@@ -46,3 +46,21 @@ def test_simulator_device_role_and_uid() -> None:
     assert device.role == Role.HWVAL
     device.set_role("APP", "app", 0x00010000)
     assert device.role == Role.DEMO
+
+
+def test_corrupt_boot_metadata_means_no_app() -> None:
+    from hostcore.images import build_image
+
+    chip = SimulatedChip.create("F1")
+    backend = SimulatedOpenOcd(chip)
+    payload = bytearray(256)
+    payload[0:4] = (0x20020000).to_bytes(4, "little")
+    payload[4:8] = (layout.SLOT_A_BASE + 1).to_bytes(4, "little")
+    image = build_image(bytes(payload), version=0x00010000, name="app")
+    header = image[: layout.IMAGE_HEADER_SIZE]
+    backend.erase_address(layout.META_A_BASE, layout.META_SIZE)
+    backend.write_memory(layout.META_A_BASE, header)
+    # Corrupt the VERIFIED record so BOOT must treat slot A as invalid.
+    backend.write_memory(layout.META_A_BASE + layout.META_VERIFIED_OFFSET, b"\x00" * 32)
+    chip.mode = "app"
+    assert not chip.boot_metadata()["valid"]

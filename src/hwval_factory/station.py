@@ -1553,6 +1553,29 @@ class Station:
         ctx.option_bytes = values
         ctx.metadata["safe_state"] = "protected"
         ctx.metadata["protection_readback"] = option_bytes_to_dict(actual)
+        # E-04: with RDP 1 + WRP applied, the product must still boot and
+        # answer HWLINK.  No SWD flash read is attempted here.
+        if spec.rdp == 1:
+            backend.reset(halt=False)
+            self._close_session(rt)
+            session = self._open_session(ctx.fixture, rt)
+            hello = self._wait_hello(
+                session,
+                timeout=self._boot_timeout(profile),
+                abort_event=rt.abort,
+            )
+            self._close_session(rt)
+            protected_role = str(hello.get("role", "")).upper()
+            if protected_role in ("HWVAL", "BOOTLOADER", "BOOT"):
+                raise StepFailure(
+                    f"after protection the unit boots {protected_role}, not the application"
+                )
+            ctx.metadata["protection_boot_check"] = {
+                "role": protected_role,
+                "firmware": hello.get("firmware_name", ""),
+                "version": hello.get("version", ""),
+            }
+            ctx.metadata["safe_state"] = "protected_boot_checked"
         self._save_extras(ctx)
         self.db.audit(
             ctx.operator,
@@ -1811,6 +1834,79 @@ class Station:
         return [
             f.name for f in self.config.fixtures if f.probe_serial and f.probe_serial not in probes
         ]
+
+    def probe_fixture(self, fixture: str) -> list[dict[str, Any]]:
+        """B-12/G-02: step-by-step SWD + VCP bring-up for one fixture."""
+        config = self.config.fixture(fixture)
+        steps: list[dict[str, Any]] = []
+
+        def add(name: str, ok: bool, detail: str = "") -> None:
+            steps.append({"name": name, "ok": ok, "detail": detail})
+
+        add("probe configured", bool(config.probe_serial), config.probe_serial or "missing")
+        backend = self._open_backend(fixture)
+        try:
+            backend.start()
+            add("OpenOCD start", True, f"telnet {config.telnet_port}")
+            backend.halt()
+            idcode = backend.read_u32(DBGMCU_IDCODE)
+            dev_id = idcode & 0xFFF
+            rev_id = (idcode >> 16) & 0xFFFF
+            add("IDCODE", True, f"DEV_ID=0x{dev_id:03X} REV_ID=0x{rev_id:04X}")
+            flash_kb = backend.read_u16(FLASH_SIZE_REG)
+            add("flash size", True, f"{flash_kb} KB")
+            uid = backend.read_memory(UID_BASE, 12)
+            add("UID", len(uid) == 12, uid.hex().upper())
+            options = backend.read_option_bytes()
+            add("option bytes", True, str(option_bytes_to_dict(options)))
+        except (OpenOcdError, OSError) as exc:
+            add("SWD", False, str(exc))
+        finally:
+            with contextlib.suppress(Exception):
+                backend.stop()
+        transport: Any
+        try:
+            if self.simulation and self.simulator is not None:
+                transport = SimulatedTransport(self.simulator.bank(fixture).device)
+            elif config.serial_port:
+                transport = SerialTransport(config.serial_port)
+            else:
+                transport = SerialTransport.find_by_probe_serial(config.probe_serial)
+        except HwLinkError as exc:
+            add("VCP open", False, str(exc))
+            return steps
+        session = HwLinkSession(transport, timeout=5.0)
+        try:
+            hello = session.connect(timeout=10.0)
+            add(
+                "HWLINK Hello",
+                True,
+                f"role={hello.get('role')} fw={hello.get('firmware_name')} "
+                f"version={hello.get('version')}",
+            )
+            role = str(hello.get("role", "")).upper()
+            if role == "HWVAL":
+                info = session.device_info()
+                add(
+                    "GetDeviceInfo",
+                    True,
+                    f"uid={info.get('uid')} optcr=0x{int(info.get('optcr', 0)):08X}",
+                )
+            elif role in ("DEMO", "APP"):
+                status = session.status()
+                add(
+                    "GetStatus",
+                    True,
+                    f"slot={status.get('slot_name')} trial={status.get('trial_name')}",
+                )
+            else:
+                boot = session.boot_info()
+                add("GetBootInfo", True, f"active={boot.get('active_slot_name')}")
+        except HwLinkError as exc:
+            add("HWLINK Hello", False, str(exc))
+        finally:
+            session.close()
+        return steps
 
     def run_self_test(self, fixture: str, operator: str = "supervisor") -> bool:
         config = self.config.fixture(fixture)

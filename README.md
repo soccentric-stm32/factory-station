@@ -163,8 +163,10 @@ hwval-factory --reprint 42 --operator supervisor
 The simulator is a contract test, not a substitute for the hardware checklist.
 
 See [docs/engineering-guide.md](docs/engineering-guide.md) for profile and
-station details, and [docs/operator-guide.md](docs/operator-guide.md) for the
-line procedure.
+station details, [docs/operator-guide.md](docs/operator-guide.md) for the line
+procedure, [docs/recovery-guide.md](docs/recovery-guide.md) for RDP 1,
+option-byte, BOOT-no-app and connect-under-reset recovery, and
+[docs/release.md](docs/release.md) for the release process.
 
 ## Related projects
 

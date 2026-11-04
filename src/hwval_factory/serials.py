@@ -52,6 +52,9 @@ def render_serial(
     counter: int,
     product_code: str = "",
     prefix: str = "",
+    site: str = "",
+    line: str = "",
+    rev: str = "",
     now: datetime | None = None,
 ) -> str:
     yy, ww = iso_week(now)
@@ -66,6 +69,9 @@ def render_serial(
         "product": product_code,
         "prefix": prefix,
         "product_code": product_code,
+        "site": site,
+        "line": line,
+        "rev": rev,
     }
     marker = "\x00LUHN\x00"
     text = template.replace("{luhn}", marker)
@@ -100,6 +106,11 @@ def serial_range(
     if end < start:
         return []
     product_code = profile.profile_id
+    identity_raw = profile.manifest.get("identity") or {}
+    identity = identity_raw if isinstance(identity_raw, dict) else {}
+    site = str(identity.get("site") or "")
+    line = str(identity.get("line") or "")
+    rev = str(identity.get("hw_revision") or "")
     values: list[str] = []
     for counter in range(start, end + 1):
         serial = render_serial(
@@ -107,6 +118,9 @@ def serial_range(
             counter=counter,
             product_code=product_code,
             prefix=wo.serial_prefix,
+            site=site,
+            line=line,
+            rev=rev,
             now=now,
         )
         values.append(serial)

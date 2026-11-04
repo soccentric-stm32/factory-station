@@ -48,3 +48,4 @@ profiles/*
 
 # --- Station runtime data -------------------------------------
 station-data/
+backups/

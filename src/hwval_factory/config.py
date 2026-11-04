@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -307,7 +308,7 @@ def load_station_config(path: str | Path | None) -> StationConfig:
         mes=MesConfig(
             enabled=_as_bool(mes_raw.get("enabled"), False),
             endpoint=str(mes_raw.get("endpoint") or ""),
-            token=str(mes_raw.get("token") or ""),
+            token=str(os.environ.get("HWVAL_MES_TOKEN", mes_raw.get("token") or "")),
             timeout_s=float(mes_raw.get("timeout_s") or 10.0),
             max_attempts=_as_int(mes_raw.get("max_attempts"), 10),
             backoff_s=float(mes_raw.get("backoff_s") or 5.0),
