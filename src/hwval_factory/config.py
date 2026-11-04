@@ -68,6 +68,7 @@ class OpenOcdConfig:
     interface_cfg: str = "interface/stlink.cfg"
     target_cfg: str = "target/stm32f7x.cfg"
     telnet_base_port: int = 4444
+    connect_under_reset: bool = False
 
 
 @dataclass(slots=True)
@@ -156,6 +157,7 @@ class StationConfig:
                 "interface_cfg": self.openocd.interface_cfg,
                 "target_cfg": self.openocd.target_cfg,
                 "telnet_base_port": self.openocd.telnet_base_port,
+                "connect_under_reset": self.openocd.connect_under_reset,
             },
             "scanner": {
                 "mode": self.scanner.mode,
@@ -294,6 +296,7 @@ def load_station_config(path: str | Path | None) -> StationConfig:
         interface_cfg=str(openocd_raw.get("interface_cfg", "interface/stlink.cfg")),
         target_cfg=str(openocd_raw.get("target_cfg", "target/stm32f7x.cfg")),
         telnet_base_port=_as_int(openocd_raw.get("telnet_base_port"), 4444),
+        connect_under_reset=_as_bool(openocd_raw.get("connect_under_reset"), False),
     )
     fixture_raw = raw.get("fixtures") or []
     if not isinstance(fixture_raw, list):

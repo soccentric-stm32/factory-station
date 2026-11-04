@@ -85,7 +85,8 @@ def apply_protection(backend: OpenOcdBackend, spec: ProtectionSpec) -> dict[str,
     expected = expected_option_bytes(spec)
     backend.halt()
     backend.write_option_bytes(expected.optcr, expected.optcr1)
-    backend.reset(halt=True)
+    if spec.rdp == 0:
+        backend.reset(halt=True)
     actual = backend.read_option_bytes()
     problems = compare_option_bytes(spec, actual)
     if problems:
@@ -120,7 +121,13 @@ def lower_rdp_for_rework(
         rdp=0,
     )
     expected = expected_option_bytes(spec)
-    backend.write_option_bytes(expected.optcr, expected.optcr1)
+    current = backend.read_option_bytes()
+    if current.rdp != 0:
+        # OpenOCD's unlock path is the one that works on RDP 1 silicon; it
+        # also mass-erases the chip.
+        backend.unlock_rdp()
+    else:
+        backend.write_option_bytes(expected.optcr, expected.optcr1)
     backend.mass_erase()
     backend.reset(halt=True)
     actual = backend.read_option_bytes()

@@ -33,6 +33,7 @@ openocd:
   interface_cfg: interface/stlink.cfg
   target_cfg: target/stm32f7x.cfg
   telnet_base_port: 4444
+  connect_under_reset: true   # also recovers an RDP 1 board for rework
 
 security:
   session_timeout_minutes: 30

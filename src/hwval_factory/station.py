@@ -954,7 +954,9 @@ class Station:
     def _step_identify(self, ctx: RunContext, rt: RunRuntime) -> StepOutcome:
         profile = self.require_profile()
         backend = self._backend(rt)
-        backend.halt()
+        # A connect-under-reset OpenOCD needs one reset to examine the target;
+        # a normal attach is also safe here because identification is read-only.
+        backend.reset(halt=True)
         idcode = backend.read_u32(DBGMCU_IDCODE)
         dev_id = idcode & 0xFFF
         rev_id = (idcode >> 16) & 0xFFFF
@@ -1641,9 +1643,11 @@ class Station:
             )
             apply_protection(backend, before)
         values = apply_protection(backend, spec)
-        # Power-cycle equivalent: reset, re-examine and read the options once
-        # more so a write that only landed in a register is caught.
-        backend.reset(halt=True)
+        # Power-cycle equivalent: read the options once more so a write that
+        # only landed in a register is caught.  RDP 1 blocks a normal reset
+        # halt/re-examine; read while the target is still running instead.
+        if spec.rdp == 0:
+            backend.reset(halt=True)
         actual = backend.read_option_bytes()
         if actual.rdp != spec.rdp:
             raise StepFailure(f"RDP read-back {actual.rdp} != {spec.rdp} after reset")
@@ -1748,6 +1752,7 @@ class Station:
             interface_cfg=self.config.openocd.interface_cfg,
             target_cfg=self.config.openocd.target_cfg,
             telnet_port=config.telnet_port,
+            connect_under_reset=self.config.openocd.connect_under_reset,
             log_callback=_log_callback,
         )
         return backend

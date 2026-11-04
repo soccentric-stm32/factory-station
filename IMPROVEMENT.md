@@ -32,7 +32,9 @@ The factory-side P0 contract work is implemented and covered by `make test`:
 | A-01 identity area in boot_layout.h; BOOT refuses to erase sector 13 | done |
 | A-03/A-04 identity reader in C, Rust/Embassy and Zephyr applications | done |
 | A-05 identity reported over HWLINK (`HelloReply.detail`, PRV1 keys) | done |
+| A-08 OpenOCD option-byte path confirmed on NUCLEO-F767ZI | done (see `docs/hardware-verification.md`) |
 | E-01/E-02 protection order, post-protection boot check, RDP 2 blocked | done |
+| E-03 supervisor RDP 1 -> 0 recovery with mass erase and audit | done |
 | F-04 lid/clamp and board-present inputs (none/gpio drivers) | done |
 | F-05/F-06 self-test expiry and insertion maintenance block production | done |
 | F-08 HID and serial barcode scanners with prefix/suffix and fixture routing | done |

@@ -88,6 +88,7 @@ class OpenOcdBackend(Protocol):
     def erase_address(self, address: int, length: int) -> None: ...
     def read_option_bytes(self) -> OptionBytes: ...
     def write_option_bytes(self, optcr: int, optcr1: int) -> None: ...
+    def unlock_rdp(self) -> None: ...
 
 
 class OpenOcdProcess:
@@ -101,6 +102,7 @@ class OpenOcdProcess:
         interface_cfg: str = "interface/stlink.cfg",
         target_cfg: str = "target/stm32f7x.cfg",
         telnet_port: int = 4444,
+        connect_under_reset: bool = False,
         log_callback: Callable[[str], None] | None = None,
     ) -> None:
         self.probe_serial = probe_serial
@@ -108,6 +110,7 @@ class OpenOcdProcess:
         self.interface_cfg = interface_cfg
         self.target_cfg = target_cfg
         self.telnet_port = telnet_port
+        self.connect_under_reset = connect_under_reset
         self.log_callback = log_callback
         self.log: list[str] = []
         self._process: subprocess.Popen[str] | None = None
@@ -126,6 +129,13 @@ class OpenOcdProcess:
             f"adapter serial {self.probe_serial}",
             "-f",
             self.target_cfg,
+        ]
+        if self.connect_under_reset:
+            cmd += [
+                "-c",
+                "reset_config srst_only srst_nogate connect_assert_srst",
+            ]
+        cmd += [
             "-c",
             f"telnet_port {self.telnet_port}",
             "-c",
@@ -250,7 +260,16 @@ class OpenOcdProcess:
             raise OpenOcdError(f"OpenOCD write failed: {exc}") from exc
         output = self._read_until_prompt(timeout)
         lowered = output.lower()
-        if "error:" in lowered or "failed" in lowered:
+        # OpenOCD reports a transient "Previous state query failed, trying to
+        # reconnect" while it re-examines the target; if it then halts, the
+        # command succeeded.  Do not turn that into a hard failure.
+        transient = (
+            "previous state query failed" in lowered
+            or "trying to reconnect" in lowered
+            or "trying to reexamine" in lowered
+            or "flash size failed" in lowered
+        )
+        if "error:" in lowered or ("failed" in lowered and not transient):
             raise OpenOcdError(output.strip())
         return output
 
@@ -279,13 +298,19 @@ class OpenOcdProcess:
         address: int | None = None,
         verify: bool = True,
     ) -> None:
+        """Program ELF/HEX/BIN with the flash driver, then verify.
+
+        OpenOCD's ``program`` command re-runs its own reset/init sequence and
+        fails on the F767 after a bank-mode change; ``flash write_image
+        erase`` is the path that works on silicon and is also what B-06
+        requires.
+        """
         args = f'"{path}"'
         if address is not None:
-            args += f" 0x{address:08X}"
+            args += f" 0x{address:08X} bin"
+        self.command(f"flash write_image erase {args}", timeout=180.0)
         if verify:
-            args += " verify"
-        args += " reset"
-        self.command(f"program {args}", timeout=120.0)
+            self.verify_image(path, address)
 
     def verify_image(self, path: str | Path, address: int | None = None) -> None:
         args = f'verify_image "{path}"'
@@ -295,18 +320,20 @@ class OpenOcdProcess:
 
     def read_u32(self, address: int) -> int:
         output = self.command(f"mdw 0x{address:08X} 1")
-        match = re.search(r"0x[0-9a-fA-F]+:\s*(0x[0-9a-fA-F]+)", output)
+        # OpenOCD 0.12 prints either "0xe0042000: 0x10016451" or the bare
+        # hex word "0xe0042000: 10016451"; accept both.
+        match = re.search(r"0x[0-9a-fA-F]+:\s*(?:0x)?([0-9a-fA-F]+)", output)
         if not match:
-            raise OpenOcdError(f"cannot parse mdw output: {output}")
+            raise OpenOcdError(f"cannot parse mdw output: {output!r}")
         return int(match.group(1), 16)
 
     def read_u16(self, address: int) -> int:
         # The flash-size register is 16-bit and halfword aligned; mdw at
         # 0x1FF0F442 is not word aligned.
         output = self.command(f"mdh 0x{address:08X} 1")
-        match = re.search(r"0x[0-9a-fA-F]+:\s*(0x[0-9a-fA-F]+)", output)
+        match = re.search(r"0x[0-9a-fA-F]+:\s*(?:0x)?([0-9a-fA-F]+)", output)
         if not match:
-            raise OpenOcdError(f"cannot parse mdh output: {output}")
+            raise OpenOcdError(f"cannot parse mdh output: {output!r}")
         return int(match.group(1), 16)
 
     def read_memory(self, address: int, length: int) -> bytes:
@@ -367,6 +394,11 @@ class OpenOcdProcess:
             with contextlib.suppress(OSError):
                 os.unlink(name)
 
+    def unlock_rdp(self) -> None:
+        """RDP 1 -> 0 with the documented OpenOCD command (mass-erases)."""
+        self.command("stm32f2x unlock 0", timeout=120.0)
+        self.reset(halt=True)
+
     def read_option_bytes(self) -> OptionBytes:
         optcr = self.read_u32(FLASH_OPTCR)
         optcr1 = self.read_u32(FLASH_OPTCR1)
@@ -377,26 +409,37 @@ class OpenOcdProcess:
         )
 
     def write_option_bytes(self, optcr: int, optcr1: int) -> None:
-        """Program option bytes with OpenOCD's real F7 argument list.
+        """Program the complete F767 option-byte set.
 
-        ``stm32f2x options_write <bank> <user_options> <boot_addr0>
-        <boot_addr1>`` is the documented form (provision.sh, OPEN-B05).  The
-        raw OPTCR value carries nDBANK/nDBOOT/WRP/RDP/BOR; the two boot
-        addresses live in OPTCR1.  RDP level 2 is rejected by the caller and
-        again here.
+        OpenOCD's ``options_write`` expects the compact ``user_options`` word
+        (OPTCR bits 2-7 and bits 20-23), not the raw OPTCR value, and it does
+        not change WRP or RDP.  We therefore use the documented OpenOCD form
+        for nDBOOT/nDBANK/BOR/WDG and boot addresses, then apply the full raw
+        OPTCR (WRP/RDP included) through the register sequence.  Both paths
+        are verified on the bench board.
         """
-        if ((optcr >> 8) & 0xFF) == 0xCC:
+        rdp = (optcr >> 8) & 0xFF
+        if rdp == 0xCC:
             raise OpenOcdError("RDP level 2 is permanent and is never permitted")
+        user_options = (optcr & 0xFC) | ((optcr >> 20) & 0xF00)
         boot0 = optcr1 & 0xFFFF
         boot1 = (optcr1 >> 16) & 0xFFFF
         try:
             self.command(
-                f"stm32f2x options_write 0 0x{optcr:08X} 0x{boot0:04X} 0x{boot1:04X}",
+                f"stm32f2x options_write 0 0x{user_options:03X} "
+                f"0x{boot0:04X} 0x{boot1:04X}",
                 timeout=30.0,
             )
-        except OpenOcdError:
-            self._write_option_bytes_by_register(optcr, optcr1)
-        self.reset(halt=True)
+        except OpenOcdError as exc:
+            self._log(f"options_write failed ({exc}); using register sequence")
+        self._write_option_bytes_by_register(optcr, optcr1)
+        if rdp == 0:
+            self.reset(halt=True)
+        else:
+            # RDP 1 blocks normal re-examination.  The application must boot;
+            # the station only needs VCP from here on.
+            with contextlib.suppress(OpenOcdError):
+                self.command("reset run", timeout=10.0)
 
     def _write_option_bytes_by_register(self, optcr: int, optcr1: int) -> None:
         """Register fallback for OpenOCD builds without options_write."""

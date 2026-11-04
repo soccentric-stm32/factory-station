@@ -173,7 +173,8 @@ hwval-factory --reprint 42 --operator supervisor
 
 The simulator is a contract test, not a substitute for the hardware checklist.
 
-See [docs/engineering-guide.md](docs/engineering-guide.md) for profile and
+See [docs/hardware-verification.md](docs/hardware-verification.md) for the
+recorded NUCLEO-F767ZI bench results, [docs/engineering-guide.md](docs/engineering-guide.md) for profile and
 station details, [docs/operator-guide.md](docs/operator-guide.md) for the line
 procedure, [docs/recovery-guide.md](docs/recovery-guide.md) for RDP 1,
 option-byte, BOOT-no-app and connect-under-reset recovery, and

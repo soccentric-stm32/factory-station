@@ -264,6 +264,10 @@ class SimulatedChip:
         }
 
 
+def chip_bench_options() -> tuple[int, int]:
+    return (0x2FFFAAE4, DEFAULT_OPTCR1)
+
+
 class SimulatedOpenOcd:
     def __init__(
         self,
@@ -445,6 +449,12 @@ class SimulatedOpenOcd:
     def read_option_bytes(self) -> OptionBytes:
         self._maybe_fault()
         return self.chip.option_bytes()
+
+    def unlock_rdp(self) -> None:
+        bench = chip_bench_options()
+        self.chip.optcr = bench[0]
+        self.chip.optcr1 = bench[1]
+        self.chip.erase()
 
     def write_option_bytes(self, optcr: int, optcr1: int) -> None:
         self._maybe_fault()

@@ -20,10 +20,10 @@ images:
     sha256: 2fb9026e369d8aa3a2e31c37da8381b78c0622eba2c2465678a8c2449bcd85b3
   boot:
     file: boot-1.0.0.hex
-    sha256: 541647c5b431410ae59149299208531574445abb9dbc64668527d9350c4b2071
+    sha256: a566179759e9c170c84202834ba37b1ecf5fbf0cbcde6bfc160144b56a38fe32
   app:
     file: app-0.1.0.img
-    sha256: 3254c7f3afa7eb6ec3a15b6e348a9692959e3ca1b32fd9bfcca9f86a6a6ee24f
+    sha256: c5a4ec1c6d9dfffd987819fcfd593f31fcf3484f5265acbb8a032e290cac50f6
     slot: A
 layout:
   slot_a: '0x0800C000'
