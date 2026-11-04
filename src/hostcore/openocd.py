@@ -39,11 +39,18 @@ class OptionBytes:
 
     @property
     def rdp(self) -> int:
-        return (self.optcr >> 8) & 0xFF
+        """Logical RDP level: 0xAA -> 0, 0x00 -> 1, 0xCC -> 2."""
+        raw = (self.optcr >> 8) & 0xFF
+        if raw == 0xCC:
+            return 2
+        if raw == 0xAA:
+            return 0
+        return 1
 
     @property
     def bor_level(self) -> int:
-        return (self.optcr >> 2) & 0x3
+        """Logical BOR level; the register field is 00=off, 01=3, 10=2, 11=1."""
+        return {0: 0, 1: 3, 2: 2, 3: 1}[(self.optcr >> 2) & 0x3]
 
     @property
     def ndbank(self) -> int:
@@ -57,7 +64,8 @@ class OptionBytes:
         return (self.optcr >> 16) & 0xFFF
 
     def bank2_wrp(self) -> int:
-        return self.optcr1 & 0xFFF
+        # STM32F7 has a single nWRP[11:0] field shared by both flash banks.
+        return (self.optcr >> 16) & 0xFFF
 
 
 class OpenOcdBackend(Protocol):
@@ -69,7 +77,9 @@ class OpenOcdBackend(Protocol):
     def halt(self) -> None: ...
     def reset(self, halt: bool = False) -> None: ...
     def mass_erase(self) -> None: ...
-    def program(self, path: str | Path, address: int | None = None, verify: bool = True) -> None: ...
+    def program(
+        self, path: str | Path, address: int | None = None, verify: bool = True
+    ) -> None: ...
     def verify_image(self, path: str | Path, address: int | None = None) -> None: ...
     def read_u32(self, address: int) -> int: ...
     def read_u16(self, address: int) -> int: ...
@@ -223,9 +233,7 @@ class OpenOcdProcess:
             data += decoded
         output, _, rest = data.partition("> ")
         self._buffer = rest
-        clean = "\n".join(
-            line for line in output.splitlines() if not line.startswith(">")
-        )
+        clean = "\n".join(line for line in output.splitlines() if not line.startswith(">"))
         self._log(clean)
         return clean
 

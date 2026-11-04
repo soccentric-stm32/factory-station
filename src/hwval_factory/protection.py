@@ -60,13 +60,16 @@ def compare_option_bytes(spec: ProtectionSpec, actual: OptionBytes) -> list[str]
         problems.append(f"nDBOOT {actual.ndboot} != {spec.ndboot}")
     expected_wrp1 = _wrp_mask(spec.wrp_bank1)
     expected_wrp2 = _wrp_mask(spec.wrp_bank2)
-    if actual.bank1_wrp() != expected_wrp1:
+    expected_wrp = _wrp_mask(sorted(set(spec.wrp_bank1) | set(spec.wrp_bank2)))
+    if actual.bank1_wrp() != expected_wrp:
         problems.append(
-            f"bank1 nWRP {actual.bank1_wrp():#05x} != {expected_wrp1:#05x}"
+            f"bank1 nWRP {actual.bank1_wrp():#05x} != {expected_wrp:#05x} "
+            f"(profile {expected_wrp1:#05x})"
         )
-    if actual.bank2_wrp() != expected_wrp2:
+    if actual.bank2_wrp() != expected_wrp:
         problems.append(
-            f"bank2 nWRP {actual.bank2_wrp():#05x} != {expected_wrp2:#05x}"
+            f"bank2 nWRP {actual.bank2_wrp():#05x} != {expected_wrp:#05x} "
+            f"(profile {expected_wrp2:#05x})"
         )
     if spec.optcr is not None and actual.optcr != expected.optcr:
         problems.append(f"OPTCR {actual.optcr:#010x} != {expected.optcr:#010x}")
@@ -108,13 +111,16 @@ def lower_rdp_for_rework(
     """
     if not confirmed:
         raise ProtectionError("rework protection removal was not confirmed")
-    try:
-        backend.command("stm32f2x options_write 0x0FFF00FC 0x00000FFF", timeout=30.0)
-    except Exception:
-        # Register path: RDP=0, WRP all unprotected, keep safe BOR=3.
-        optcr = 0x0FFF00FC
-        optcr1 = 0x00000FFF
-        backend.write_option_bytes(optcr, optcr1)
+    spec = ProtectionSpec(
+        ndbank=0,
+        ndboot=0,
+        bor_lev=3,
+        wrp_bank1=[],
+        wrp_bank2=[],
+        rdp=0,
+    )
+    expected = expected_option_bytes(spec)
+    backend.write_option_bytes(expected.optcr, expected.optcr1)
     backend.mass_erase()
     backend.reset(halt=True)
     actual = backend.read_option_bytes()

@@ -77,6 +77,10 @@ def certificate_pdf(db: Database, run_id: int, path: str | Path) -> Path:
     width, height = 1240, 1754  # A4 at 150 dpi
     image = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(image)
+    title: Any
+    heading: Any
+    body: Any
+    small: Any
     try:
         title = ImageFont.truetype("DejaVuSans-Bold.ttf", 42)
         heading = ImageFont.truetype("DejaVuSans-Bold.ttf", 24)

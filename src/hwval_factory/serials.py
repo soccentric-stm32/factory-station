@@ -209,9 +209,7 @@ class SerialService:
             )
             self.db.add_macs(wo.name, macs)
             loaded_macs = int(
-                self.db.scalar(
-                    "SELECT COUNT(*) FROM mac_pool WHERE work_order = ?", (wo.name,)
-                )
+                self.db.scalar("SELECT COUNT(*) FROM mac_pool WHERE work_order = ?", (wo.name,))
                 or 0
             )
             if loaded_macs < len(macs) and loaded_macs <= int(existing_macs or 0):

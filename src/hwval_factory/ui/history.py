@@ -64,7 +64,18 @@ class HistoryView(QWidget):
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         self.runs = DataTable(
-            ["Run", "Started", "PCB serial", "UID", "Serial", "MAC", "Fixture", "Kind", "Result", "Step"]
+            [
+                "Run",
+                "Started",
+                "PCB serial",
+                "UID",
+                "Serial",
+                "MAC",
+                "Fixture",
+                "Kind",
+                "Result",
+                "Step",
+            ]
         )
         self.runs.itemSelectionChanged.connect(self._selected)
         self.runs.doubleClicked.connect(self._selected)
@@ -74,9 +85,7 @@ class HistoryView(QWidget):
             ["Run", "Started", "Kind", "Result", "Fixture", "Profile", "Operator", "Reason"]
         )
         bottom.addTab(self.detail, "All runs of the unit")
-        self.labels = DataTable(
-            ["Run", "Printed", "Reprint", "User", "Status", "Output"]
-        )
+        self.labels = DataTable(["Run", "Printed", "Reprint", "User", "Status", "Output"])
         bottom.addTab(self.labels, "Labels and reprints")
         splitter.addWidget(bottom)
         splitter.setSizes([420, 240])

@@ -59,9 +59,7 @@ class FixtureTile(QFrame):
         self.elapsed.setObjectName("Muted")
         self.serial = QLabel("—")
         self.serial.setStyleSheet("font-family: monospace; font-size: 17px;")
-        self.serial.setAlignment(
-            self.serial.alignment() | Qt.AlignmentFlag.AlignRight
-        )
+        self.serial.setAlignment(self.serial.alignment() | Qt.AlignmentFlag.AlignRight)
         info.addWidget(self.elapsed)
         info.addStretch(1)
         info.addWidget(self.serial)
@@ -95,15 +93,18 @@ class FixtureTile(QFrame):
     def update_status(self, status: FixtureStatus) -> None:
         self._status = status
         self.pill.set_state(status.state.value, status.state.value)
-        self.step.setText(status.step_name or {
-            FixtureState.IDLE: "Ready",
-            FixtureState.LOAD: "Waiting for scan",
-            FixtureState.RUNNING: "Running",
-            FixtureState.ACTION: "Operator action",
-            FixtureState.PASS: "PASS",
-            FixtureState.FAIL: "FAIL",
-            FixtureState.ERROR: "Station error",
-        }.get(status.state, "Ready"))
+        self.step.setText(
+            status.step_name
+            or {
+                FixtureState.IDLE: "Ready",
+                FixtureState.LOAD: "Waiting for scan",
+                FixtureState.RUNNING: "Running",
+                FixtureState.ACTION: "Operator action",
+                FixtureState.PASS: "PASS",
+                FixtureState.FAIL: "FAIL",
+                FixtureState.ERROR: "Station error",
+            }.get(status.state, "Ready")
+        )
         self.progress.setValue(status.progress)
         self.elapsed.setText(f"{status.elapsed_s:.1f} s")
         self.serial.setText(status.serial_number or status.pcb_serial or "—")

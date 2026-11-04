@@ -228,8 +228,10 @@ def load_station_config(path: str | Path | None) -> StationConfig:
     printer_raw = raw.get("printer") or {}
     mes_raw = raw.get("mes") or {}
     security = raw.get("security") or {}
-    if not isinstance(printer_raw, dict) or not isinstance(mes_raw, dict) or not isinstance(
-        security, dict
+    if (
+        not isinstance(printer_raw, dict)
+        or not isinstance(mes_raw, dict)
+        or not isinstance(security, dict)
     ):
         raise ConfigError("[printer], [mes] and [security] must be mappings")
     config = StationConfig(

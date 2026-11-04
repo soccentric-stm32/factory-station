@@ -98,9 +98,7 @@ class WorkOrderDialog(QDialog):
         self.serial_end.setSpecialValueText("auto")
         self.serial_count = QLabel("")
         self.serial_count.setObjectName("Muted")
-        self.mac_start = QLineEdit(
-            station.work_order.mac_start if station.work_order else ""
-        )
+        self.mac_start = QLineEdit(station.work_order.mac_start if station.work_order else "")
         self.mac_start.setPlaceholderText(profile.identity.oui_block or "not enabled")
         self.mac_count = QSpinBox()
         self.mac_count.setRange(0, 1_000_000)
@@ -160,7 +158,8 @@ class WorkOrderDialog(QDialog):
                 quantity=self.quantity.value(),
                 serial_prefix=self.serial_prefix.text().strip(),
                 serial_start=self.serial_start.value(),
-                serial_end=self.serial_end.value() or self.serial_start.value() + self.quantity.value() - 1,
+                serial_end=self.serial_end.value()
+                or self.serial_start.value() + self.quantity.value() - 1,
                 mac_start=self.mac_start.text().strip(),
                 mac_count=self.mac_count.value(),
                 user=self.user,
@@ -224,7 +223,9 @@ class FixturesDialog(QDialog):
         self._detected = self.station.detect_probes()
         missing = self.station.missing_probes(self._detected)
         self.missing.setText(
-            "Missing probes: " + ", ".join(missing) if missing else "All configured probes detected."
+            "Missing probes: " + ", ".join(missing)
+            if missing
+            else "All configured probes detected."
         )
         self.table.setRowCount(len(self.config.fixtures))
         for row_index, fixture in enumerate(self.config.fixtures):
@@ -365,9 +366,7 @@ class UsersDialog(QDialog):
             QMessageBox.critical(self, "Users", str(exc))
             return
         current = self.auth.current_user()
-        self.auth.db.audit(
-            current.username if current else "admin", "user.update", username
-        )
+        self.auth.db.audit(current.username if current else "admin", "user.update", username)
         self.pin.clear()
         self.username.clear()
         self.badge.clear()
@@ -428,7 +427,9 @@ class PrinterDialog(QDialog):
         self.port.setValue(station.config.printer.port)
         self.queue = QLineEdit(station.config.printer.queue)
         self.queue.setPlaceholderText("or a local print queue (lp)")
-        self.output_dir = QLineEdit(str(station.config.printer.output_dir or station.config.labels_dir))
+        self.output_dir = QLineEdit(
+            str(station.config.printer.output_dir or station.config.labels_dir)
+        )
         form.addRow("", self.enabled)
         form.addRow("Printer host", self.host)
         form.addRow("Port", self.port)
@@ -541,8 +542,7 @@ def import_profile_dialog(
     chooser.setModal(True)
     layout = QVBoxLayout(chooser)
     label = QLabel(
-        "Import a released profile archive or directory. The station copy is made "
-        "read-only."
+        "Import a released profile archive or directory. The station copy is made read-only."
     )
     label.setWordWrap(True)
     layout.addWidget(label)

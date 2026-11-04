@@ -203,8 +203,7 @@ def _check_secret(key: str) -> None:
     lowered = key.lower()
     if any(word in lowered for word in _SECRET_WORDS):
         raise RecordError(
-            "provisioning records must not contain secret keys in v0.1; "
-            "see OPEN-F04 (PRV-007)"
+            "provisioning records must not contain secret keys in v0.1; see OPEN-F04 (PRV-007)"
         )
 
 
@@ -231,18 +230,14 @@ def build_record(data: ProvisioningData) -> bytes:
         if len(data.mac) != 6:
             raise RecordError("MAC address must be 6 bytes")
         tlvs += _tlv(T_MAC, data.mac)
-    for field_id, (calibration_value, calibration_unit) in sorted(
-        data.calibration.items()
-    ):
+    for field_id, (calibration_value, calibration_unit) in sorted(data.calibration.items()):
         if not T_CALIBRATION_MIN <= field_id <= T_CALIBRATION_MAX:
             raise RecordError(f"calibration field {field_id:#x} outside 0x20-0x2F")
         tlvs += _tlv(field_id, _unit_value(calibration_value, calibration_unit))
     for field_id, customer_value in sorted(data.customer.items()):
         if not T_CUSTOMER_MIN <= field_id <= T_CUSTOMER_MAX:
             raise RecordError(f"customer field {field_id:#x} outside 0x40-0x4F")
-        tlvs += _tlv(
-            field_id, _ascii(customer_value, 64, f"customer field {field_id:#x}")
-        )
+        tlvs += _tlv(field_id, _ascii(customer_value, 64, f"customer field {field_id:#x}"))
     for index, (key, custom_value) in enumerate(sorted(data.custom.items())):
         _check_secret(key)
         key_bytes = _ascii(key, 64, "custom key")

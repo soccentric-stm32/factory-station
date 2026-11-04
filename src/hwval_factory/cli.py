@@ -47,7 +47,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hw-revision", default="")
     parser.add_argument("--simulate", action="store_true", help="force the fixture simulator")
     parser.add_argument("--no-simulate", action="store_true", help="force real hardware")
-    parser.add_argument("--fail-test", action="append", default=[], help="simulate a failing test ID")
+    parser.add_argument(
+        "--fail-test", action="append", default=[], help="simulate a failing test ID"
+    )
     parser.add_argument("--fault-rate", type=float, default=0.0, help="simulated USB fault rate")
     parser.add_argument("--list-profiles", action="store_true")
     parser.add_argument("--list-fixtures", action="store_true")
@@ -215,9 +217,7 @@ def _run_one(args: argparse.Namespace) -> int:
             if run is not None and run["reason"]:
                 print(f"reason: {run['reason']}")
             for step in db.steps(run_id):
-                duration = (
-                    "" if step["duration_ms"] is None else f" {int(step['duration_ms'])} ms"
-                )
+                duration = "" if step["duration_ms"] is None else f" {int(step['duration_ms'])} ms"
                 print(f"  {int(step['seq']):02d} {step['name']}: {step['result']}{duration}")
             for test in db.tests(run_id):
                 value = ""
@@ -242,19 +242,14 @@ def _run_utility(args: argparse.Namespace) -> int:
                 public_key=config.profile_public_key or None,
             )
             for profile in profiles:
-                print(
-                    f"{profile.profile_id}\t{profile.version}\t{profile.product}\t"
-                    f"{profile.path}"
-                )
+                print(f"{profile.profile_id}\t{profile.version}\t{profile.product}\t{profile.path}")
             return 0
         if args.list_fixtures:
             for fixture in config.fixtures:
                 print(f"{fixture.name}\t{fixture.probe_serial}\t{fixture.serial_port}")
             return 0
         if args.export:
-            target = args.output or Path(
-                f"export-{args.work_order or 'all'}.{args.export}"
-            )
+            target = args.output or Path(f"export-{args.work_order or 'all'}.{args.export}")
             if args.export == "csv":
                 print(
                     export_csv(

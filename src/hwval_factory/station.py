@@ -389,9 +389,7 @@ class Station:
 
     def waiting_fixtures(self) -> list[str]:
         with self._lock:
-            return [
-                s.name for s in self._statuses.values() if s.state == FixtureState.LOAD
-            ]
+            return [s.name for s in self._statuses.values() if s.state == FixtureState.LOAD]
 
     # -- run lifecycle ------------------------------------------------
     def start_run(
@@ -422,23 +420,16 @@ class Station:
             existing = self._workers.get(fixture)
             if existing is not None and not existing.done.is_set():
                 raise StationError(f"fixture {fixture} is already running")
-            if (
-                pcb_serial
-                and kind == RunKind.FIRST
-                and self.db.run_count_for_pcb(pcb_serial)
-            ):
+            if pcb_serial and kind == RunKind.FIRST and self.db.run_count_for_pcb(pcb_serial):
                 raise StationError(
                     f"board {pcb_serial} already has runs in the database; "
                     "start a retest or rework instead"
                 )
             if kind == RunKind.RETEST and not retest_approved:
-                failures = (
-                    self.db.failure_count_for_pcb(pcb_serial) if pcb_serial else 0
-                )
+                failures = self.db.failure_count_for_pcb(pcb_serial) if pcb_serial else 0
                 if failures >= self.config.retest_after_failures:
                     raise StationError(
-                        "retest requires supervisor approval after "
-                        f"{failures} failure(s)"
+                        f"retest requires supervisor approval after {failures} failure(s)"
                     )
             if kind == RunKind.REWORK and not rework_approved:
                 raise StationError("rework requires supervisor approval")
@@ -633,7 +624,14 @@ class Station:
             result = RunResult.FAIL
             failed_step = worker.status.step_name or None
             reason = self._safe_reason(ctx, exc.reason)
-        except (OpenOcdError, HwLinkError, ProfileError, ProtectionError, RecordError, ImageError) as exc:
+        except (
+            OpenOcdError,
+            HwLinkError,
+            ProfileError,
+            ProtectionError,
+            RecordError,
+            ImageError,
+        ) as exc:
             result = RunResult.ERROR
             failed_step = worker.status.step_name or None
             reason = self._safe_reason(ctx, str(exc))
@@ -891,19 +889,14 @@ class Station:
         if not re.fullmatch(pattern, ctx.pcb_serial):
             raise StepFailure(f"invalid board barcode {ctx.pcb_serial!r}")
         previous = [
-            row
-            for row in self.db.runs_for_pcb(ctx.pcb_serial)
-            if int(row["id"]) != ctx.run_id
+            row for row in self.db.runs_for_pcb(ctx.pcb_serial) if int(row["id"]) != ctx.run_id
         ]
         if previous and ctx.kind == RunKind.FIRST:
-            raise StepFailure(
-                f"board {ctx.pcb_serial} already has runs; start a retest or rework"
-            )
+            raise StepFailure(f"board {ctx.pcb_serial} already has runs; start a retest or rework")
         passed = [row for row in previous if str(row["result"]) == "PASS"]
         if passed and ctx.kind != RunKind.REWORK:
             raise StepFailure(
-                f"board {ctx.pcb_serial} already passed in run {passed[0]['id']}; "
-                "use rework"
+                f"board {ctx.pcb_serial} already passed in run {passed[0]['id']}; use rework"
             )
         if self.simulation and self.simulator is not None:
             self.simulator.bank(ctx.fixture).select_board(ctx.pcb_serial)
@@ -949,8 +942,7 @@ class Station:
             ctx.hw_revision = profile.hw_revisions[-1]
         if ctx.hw_revision and not profile.accepts_revision(ctx.hw_revision):
             raise StepFailure(
-                f"hardware revision {ctx.hw_revision} not in profile "
-                f"{profile.hw_revisions}"
+                f"hardware revision {ctx.hw_revision} not in profile {profile.hw_revisions}"
             )
         accepted = profile.parts.accepts(dev_id, rev_id, flash_kb)
         if not accepted:
@@ -1029,9 +1021,7 @@ class Station:
         backend.reset(halt=False)
         ctx.metadata["safe_state"] = "test_programmed"
         self._save_extras(ctx)
-        return StepOutcome(
-            detail=f"nDBANK=1, erased, programmed {test_path.name}, verified"
-        )
+        return StepOutcome(detail=f"nDBANK=1, erased, programmed {test_path.name}, verified")
 
     def _step_test(self, ctx: RunContext, rt: RunRuntime) -> StepOutcome:
         profile = self.require_profile()
@@ -1096,13 +1086,9 @@ class Station:
                 detail = first_failure.reason or "test failed"
                 if first_failure.measured_value is not None:
                     detail += (
-                        f"; measured {first_failure.measured_value} "
-                        f"{first_failure.measured_unit}"
+                        f"; measured {first_failure.measured_value} {first_failure.measured_unit}"
                     )
-                if (
-                    first_failure.limit_min is not None
-                    or first_failure.limit_max is not None
-                ):
+                if first_failure.limit_min is not None or first_failure.limit_max is not None:
                     detail += (
                         f"; limits {first_failure.limit_min}..{first_failure.limit_max} "
                         f"{first_failure.measured_unit}"
@@ -1131,15 +1117,11 @@ class Station:
             limit_max=_optional_float(raw.get("limit_max")),
             reason=str(raw.get("reason", "")),
             operator_answer=(
-                None
-                if raw.get("operator_answer") is None
-                else str(raw.get("operator_answer"))
+                None if raw.get("operator_answer") is None else str(raw.get("operator_answer"))
             ),
         )
 
-    def _record_test_results(
-        self, ctx: RunContext, results: list[TestResult]
-    ) -> None:
+    def _record_test_results(self, ctx: RunContext, results: list[TestResult]) -> None:
         for test in results:
             self.db.add_test_result(
                 ctx.run_id,
@@ -1162,18 +1144,14 @@ class Station:
         for rule in profile.calibration:
             result = self._find_test_result(measured, rule.source)
             if result is None or result.measured_value is None:
-                raise StepFailure(
-                    f"calibration source {rule.source} has no measured value"
-                )
+                raise StepFailure(f"calibration source {rule.source} has no measured value")
             value = rule.evaluate(float(result.measured_value))
             unit = rule.unit or result.measured_unit
             ctx.calibration[rule.field_id] = (value, unit)
             parts.append(f"{rule.field_id:#04x}={value:g}{unit}")
         return StepOutcome(detail=", ".join(parts))
 
-    def _find_test_result(
-        self, measured: dict[str, TestResult], source: str
-    ) -> TestResult | None:
+    def _find_test_result(self, measured: dict[str, TestResult], source: str) -> TestResult | None:
         if "." not in source:
             return measured.get(source)
         candidates = sorted(measured, key=len, reverse=True)
@@ -1270,9 +1248,7 @@ class Station:
                 need_mac=profile.identity.mac_enabled,
             )
         if rt.allocation is None:
-            raise StepFailure(
-                "no serial number available (range exhausted or MAC pool empty)"
-            )
+            raise StepFailure("no serial number available (range exhausted or MAC pool empty)")
         ctx.serial_number = rt.allocation.serial_number
         ctx.mac = rt.allocation.mac
         address = provisioning_address(profile)
@@ -1291,9 +1267,7 @@ class Station:
         db_revision = 0 if latest is None else int(latest["revision"])
         revision = max(db_revision, on_chip_revision) + 1
         ctx.record_revision = revision
-        app_version = (
-            profile.app_image.image.version if profile.app_image.image is not None else 0
-        )
+        app_version = profile.app_image.image.version if profile.app_image.image is not None else 0
         customer: dict[int, str] = {}
         provisioning_cfg = profile.manifest.get("provisioning") or {}
         if isinstance(provisioning_cfg, dict):
@@ -1317,9 +1291,7 @@ class Station:
         otp_cfg = profile.manifest.get("otp") or {}
         if isinstance(otp_cfg, dict) and otp_cfg.get("enabled"):
             if not otp_cfg.get("approved"):
-                raise StepFailure(
-                    "OTP marker is enabled but not engineer-approved in the profile"
-                )
+                raise StepFailure("OTP marker is enabled but not engineer-approved in the profile")
             if not ctx.serial_number:
                 raise StepFailure("cannot write OTP marker without a serial number")
         data = ProvisioningData(
@@ -1331,11 +1303,7 @@ class Station:
             profile=f"{profile.profile_id}@{profile.version}",
             firmware_version=app_version,
             uid=bytes.fromhex(ctx.uid),
-            mac=(
-                bytes.fromhex(ctx.mac.replace(":", ""))
-                if ctx.mac
-                else None
-            ),
+            mac=(bytes.fromhex(ctx.mac.replace(":", "")) if ctx.mac else None),
             calibration=dict(ctx.calibration),
             customer=customer,
             custom=custom,
@@ -1386,13 +1354,10 @@ class Station:
         )
         ctx.metadata["safe_state"] = "provisioned"
         self._save_extras(ctx)
-        self._update_status(
-            ctx.fixture, serial_number=ctx.serial_number, pcb_serial=ctx.pcb_serial
-        )
+        self._update_status(ctx.fixture, serial_number=ctx.serial_number, pcb_serial=ctx.pcb_serial)
         return StepOutcome(
             detail=(
-                f"serial={ctx.serial_number} mac={ctx.mac or '—'} "
-                f"rev={revision} at {address:#010x}"
+                f"serial={ctx.serial_number} mac={ctx.mac or '—'} rev={revision} at {address:#010x}"
             )
         )
 
@@ -1402,9 +1367,7 @@ class Station:
         self._close_session(rt)
         backend.reset(halt=False)
         session = self._open_session(ctx.fixture, rt)
-        hello = self._wait_hello(
-            session, timeout=self._boot_timeout(profile), abort_event=rt.abort
-        )
+        hello = self._wait_hello(session, timeout=self._boot_timeout(profile), abort_event=rt.abort)
         role = str(hello.get("role", ""))
         expected_role = str((profile.manifest.get("boot_check") or {}).get("role", "APP"))
         if expected_role and role.upper() not in (expected_role.upper(), "APP", "DEMO"):
@@ -1422,9 +1385,7 @@ class Station:
         if hello.get("uid") and str(hello.get("uid")).upper() != ctx.uid.upper():
             raise StepFailure("booted chip UID does not match the provisioning record")
         if ctx.mac and hello.get("mac") and str(hello.get("mac")).upper() != ctx.mac.upper():
-            raise StepFailure(
-                f"booted MAC {hello.get('mac')!r} != provisioned {ctx.mac!r}"
-            )
+            raise StepFailure(f"booted MAC {hello.get('mac')!r} != provisioned {ctx.mac!r}")
         reported_name = str(hello.get("firmware", "")).lower()
         expected_name = (
             (profile.app_image.image.name or profile.image_path("app").stem).lower()
@@ -1444,13 +1405,17 @@ class Station:
             profile.app_image.image.version if profile.app_image.image is not None else 0
         )
         reported_version = hello.get("version")
-        if expected_version and isinstance(reported_version, int) and reported_version not in (
-            expected_version,
-            0,
+        if (
+            expected_version
+            and isinstance(reported_version, int)
+            and reported_version
+            not in (
+                expected_version,
+                0,
+            )
         ):
             raise StepFailure(
-                f"booted firmware version 0x{reported_version:08X} != "
-                f"0x{expected_version:08X}"
+                f"booted firmware version 0x{reported_version:08X} != 0x{expected_version:08X}"
             )
         self._close_session(rt)
         ctx.metadata["safe_state"] = "boot_checked"
@@ -1480,9 +1445,7 @@ class Station:
     def _step_label(self, ctx: RunContext, rt: RunRuntime) -> StepOutcome:
         profile = self.require_profile()
         app_version = (
-            profile.app_image.image.version_string()
-            if profile.app_image.image is not None
-            else ""
+            profile.app_image.image.version_string() if profile.app_image.image is not None else ""
         )
         data = label_data(
             serial_number=ctx.serial_number,
@@ -1637,15 +1600,12 @@ class Station:
             if actual != segment.data:
                 raise StepFailure(f"flash verify failed at {segment.address:#010x}")
         combined = b"".join(
-            backend.read_memory(segment.address, len(segment.data))
-            for segment in image.segments
+            backend.read_memory(segment.address, len(segment.data)) for segment in image.segments
         )
         if zlib.crc32(combined) & 0xFFFFFFFF != image.crc32:
             raise StepFailure("flash CRC32 does not match the image")
 
-    def _program_payload(
-        self, backend: OpenOcdBackend, image: FirmwareImage, address: int
-    ) -> None:
+    def _program_payload(self, backend: OpenOcdBackend, image: FirmwareImage, address: int) -> None:
         with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as handle:
             handle.write(image.data)
             name = Path(handle.name)
@@ -1719,9 +1679,7 @@ class Station:
     def missing_probes(self, detected: list[str] | None = None) -> list[str]:
         probes = set(detected if detected is not None else self.detect_probes())
         return [
-            f.name
-            for f in self.config.fixtures
-            if f.probe_serial and f.probe_serial not in probes
+            f.name for f in self.config.fixtures if f.probe_serial and f.probe_serial not in probes
         ]
 
     def run_self_test(self, fixture: str, operator: str = "supervisor") -> bool:

@@ -64,9 +64,7 @@ class ParetoChart(QWidget):
             bar_width = (self.width() - label_width - 46) * count / max_value
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(COLORS["fail"]))
-            painter.drawRoundedRect(
-                QRectF(label_width, y + 3, bar_width, row_height - 7), 4, 4
-            )
+            painter.drawRoundedRect(QRectF(label_width, y + 3, bar_width, row_height - 7), 4, 4)
             painter.setPen(QColor(COLORS["text"]))
             painter.drawText(
                 QRectF(label_width + bar_width + 6, y, 40, row_height),
@@ -130,13 +128,21 @@ class DashboardView(QWidget):
         charts.addWidget(test_card)
         root.addLayout(charts, 2)
 
-        self.cycle_table = DataTable(
-            ["Group", "Runs", "Average cycle", "Fastest", "Slowest"]
-        )
+        self.cycle_table = DataTable(["Group", "Runs", "Average cycle", "Fastest", "Slowest"])
         root.addWidget(self.cycle_table, 1)
 
         self.table = DataTable(
-            ["Run", "Started", "Work order", "Fixture", "Profile", "Kind", "Result", "Step", "Reason"]
+            [
+                "Run",
+                "Started",
+                "Work order",
+                "Fixture",
+                "Profile",
+                "Kind",
+                "Result",
+                "Step",
+                "Reason",
+            ]
         )
         root.addWidget(self.table, 1)
 

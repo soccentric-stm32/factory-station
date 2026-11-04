@@ -102,21 +102,16 @@ def default_template(spec: LabelSpec) -> str:
         if name in ("serial", "serial_number", "mac", "uid", "pcb_serial"):
             continue
         lines.append(
-            f"^FO14,{y}^A0N,20,20^FD{name.replace('_', ' ').title()}: "
-            + "{{" + name + "}}^FS"
+            f"^FO14,{y}^A0N,20,20^FD{name.replace('_', ' ').title()}: " + "{{" + name + "}}^FS"
         )
         y += 22
     serial = "{{serial}}" if "serial" in fields or not fields else "{{" + fields[0] + "}}"
-    mac_line = (
-        "^FO14,112^A0N,16,16^FDMAC: {{mac}}^FS" if "mac" in fields else ""
-    )
+    mac_line = "^FO14,112^A0N,16,16^FDMAC: {{mac}}^FS" if "mac" in fields else ""
     return (
         "^XA\n"
         f"^PW{int(spec.width_mm * 8)}\n"
         f"^LL{int(spec.height_mm * 8)}\n"
-        "^LH0,0\n"
-        + "\n".join(lines)
-        + "\n"
+        "^LH0,0\n" + "\n".join(lines) + "\n"
         f"^FO14,{max(y, 70)}^A0N,26,26^FD{serial}^FS\n"
         f"{mac_line}\n"
         f"^FO14,145^BY2,2,54^BCN,54,N,N,N^FD{serial}^FS\n"
@@ -164,7 +159,11 @@ class LabelService:
         data: dict[str, Any],
         target: str | Path | None = None,
     ) -> Path:
-        path = Path(target) if target else self.labels_dir / f"preview-{data.get('serial', 'label')}.png"
+        path = (
+            Path(target)
+            if target
+            else self.labels_dir / f"preview-{data.get('serial', 'label')}.png"
+        )
         _draw_label_png(profile.label, data, path)
         return path
 
@@ -308,9 +307,7 @@ class LabelService:
             check=False,
         )
         if proc.returncode != 0:
-            raise LabelError(
-                f"lp failed: {proc.stderr.decode('utf-8', 'replace').strip()}"
-            )
+            raise LabelError(f"lp failed: {proc.stderr.decode('utf-8', 'replace').strip()}")
 
     def _save_fallback(
         self,
@@ -358,6 +355,8 @@ def _draw_label_png(spec: LabelSpec, data: dict[str, Any], path: Path) -> None:
     height = max(1, int(spec.height_mm / 25.4 * dpi))
     image = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(image)
+    font: Any
+    small: Any
     try:
         font = ImageFont.truetype("DejaVuSans.ttf", max(10, height // 10))
         small = ImageFont.truetype("DejaVuSans.ttf", max(8, height // 14))
@@ -406,7 +405,12 @@ def _draw_label_png(spec: LabelSpec, data: dict[str, Any], path: Path) -> None:
         for col in range(qr_size // cell):
             if digest[(row * 12 + col) % len(digest)] & (1 << ((row + col) % 8)):
                 draw.rectangle(
-                    [qx + col * cell, qy + row * cell, qx + (col + 1) * cell, qy + (row + 1) * cell],
+                    [
+                        qx + col * cell,
+                        qy + row * cell,
+                        qx + (col + 1) * cell,
+                        qy + (row + 1) * cell,
+                    ],
                     fill="black",
                 )
     image.save(path, "PNG")
@@ -443,7 +447,7 @@ def png_to_qimage(payload: bytes) -> Any:
     from PySide6.QtGui import QImage
 
     image = QImage()
-    image.loadFromData(payload, b"PNG")
+    image.loadFromData(payload)
     return image
 
 

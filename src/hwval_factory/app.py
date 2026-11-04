@@ -48,9 +48,7 @@ def _resolve_profile(
             )
         inside = profiles_dir / args.profile
         if inside.exists():
-            return load_profile(
-                inside, require_signature=require_signature, public_key=public_key
-            )
+            return load_profile(inside, require_signature=require_signature, public_key=public_key)
         raise ProfileError(f"profile {args.profile!r} not found")
     profiles = list_profiles(
         profiles_dir,
@@ -61,9 +59,7 @@ def _resolve_profile(
         return sorted(profiles, key=lambda p: p.version)[-1]
     demo = Path("examples/profile-sc767-demo")
     if demo.is_dir():
-        return load_profile(
-            demo, require_signature=require_signature, public_key=public_key
-        )
+        return load_profile(demo, require_signature=require_signature, public_key=public_key)
     raise ProfileError(
         "no product profile found. Import one with Tools → Profiles, or pass --profile."
     )

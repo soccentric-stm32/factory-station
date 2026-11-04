@@ -89,11 +89,15 @@ class ScannerRouter(QObject):
     def eventFilter(self, obj: QObject, event: Any) -> bool:
         from PySide6.QtCore import QEvent
 
-        if event.type() in (
-            QEvent.Type.MouseButtonPress,
-            QEvent.Type.Wheel,
-            QEvent.Type.KeyPress,
-        ) and self.activity is not None:
+        if (
+            event.type()
+            in (
+                QEvent.Type.MouseButtonPress,
+                QEvent.Type.Wheel,
+                QEvent.Type.KeyPress,
+            )
+            and self.activity is not None
+        ):
             self.activity()
         if event.type() not in (QEvent.Type.KeyPress, QEvent.Type.ShortcutOverride):
             return False
@@ -114,8 +118,13 @@ class ScannerRouter(QObject):
         if key == Qt.Key.Key_Escape:
             self.buffer = ""
             return False
-        if text and text.isprintable() and not (
-            event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)
+        if (
+            text
+            and text.isprintable()
+            and not (
+                event.modifiers()
+                & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)
+            )
         ):
             if self.buffer and (now - self.last_time) > 0.5:
                 self.buffer = ""
@@ -163,9 +172,7 @@ class StationWindow(QMainWindow):
         self._scanner = ScannerRouter(
             self._scanned,
             self,
-            activity=lambda: (
-                self.auth.session.touch() if self.auth.session is not None else None
-            ),
+            activity=lambda: self.auth.session.touch() if self.auth.session is not None else None,
         )
         QApplication.instance().installEventFilter(self._scanner)  # type: ignore[union-attr]
         self.setWindowTitle(f"{APP_NAME} — {config.station_name}")
@@ -226,9 +233,7 @@ class StationWindow(QMainWindow):
         names = QVBoxLayout()
         title = QLabel(APP_NAME)
         title.setStyleSheet("font-size: 23px; font-weight: 700;")
-        self.station_label = QLabel(
-            f"{self.config.station_id} · {self.config.station_name}"
-        )
+        self.station_label = QLabel(f"{self.config.station_id} · {self.config.station_name}")
         self.station_label.setObjectName("Muted")
         names.addWidget(title)
         names.addWidget(self.station_label)
@@ -392,9 +397,7 @@ class StationWindow(QMainWindow):
     def _build_shortcuts(self) -> None:
         for index, fixture in enumerate([f for f in self.config.fixtures if f.enabled][:8], 1):
             shortcut = QShortcut(QKeySequence(f"F{index}"), self)
-            shortcut.activated.connect(
-                lambda name=fixture.name: self._fixture_toggle(name)
-            )
+            shortcut.activated.connect(lambda name=fixture.name: self._fixture_toggle(name))
 
     # -- operator actions --------------------------------------------
     def _operator(self) -> str:
@@ -468,9 +471,7 @@ class StationWindow(QMainWindow):
             return True
         if not self._require_role(Role.SUPERVISOR, "select a work order"):
             return False
-        dialog = WorkOrderDialog(
-            self.station, self.profile, self, user=self._operator()
-        )
+        dialog = WorkOrderDialog(self.station, self.profile, self, user=self._operator())
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
         if self.station.profile is not None:
@@ -482,9 +483,7 @@ class StationWindow(QMainWindow):
     def select_work_order(self) -> None:
         if not self._require_role(Role.SUPERVISOR, "select a work order"):
             return
-        dialog = WorkOrderDialog(
-            self.station, self.profile, self, user=self._operator()
-        )
+        dialog = WorkOrderDialog(self.station, self.profile, self, user=self._operator())
         if dialog.exec() == QDialog.DialogCode.Accepted:
             if self.station.profile is not None:
                 self.profile = self.station.profile
@@ -750,9 +749,7 @@ class StationWindow(QMainWindow):
         self._run_background(
             "Certificate",
             lambda: certificate_pdf(self.db, run_id, path),
-            lambda written: QMessageBox.information(
-                self, "Certificate", f"Written to {written}"
-            ),
+            lambda written: QMessageBox.information(self, "Certificate", f"Written to {written}"),
         )
 
     def _selected_run(self) -> int | None:
@@ -850,9 +847,7 @@ class StationWindow(QMainWindow):
             QMessageBox.warning(self, "Label", "No profile selected.")
             return
         user = self._operator()
-        thread = _FunctionThread(
-            lambda: self.station.label_service.test_print(profile, user), self
-        )
+        thread = _FunctionThread(lambda: self.station.label_service.test_print(profile, user), self)
 
         def _done(result: Any, error: str) -> None:
             self._threads.remove(thread)
@@ -900,18 +895,14 @@ class StationWindow(QMainWindow):
         if not self._require_role(Role.SUPERVISOR, "run a station self-test"):
             return
         choices = ["All fixtures", *self.station.fixture_names()]
-        choice, ok = QInputDialog.getItem(
-            self, "Self-test", "Fixture:", choices, 0, False
-        )
+        choice, ok = QInputDialog.getItem(self, "Self-test", "Fixture:", choices, 0, False)
         if not ok:
             return
         names = self.station.fixture_names() if choice == "All fixtures" else [choice]
         self.statusBar().showMessage(f"Self-test of {', '.join(names)} running…")
         user = self._operator()
         thread = _FunctionThread(
-            lambda: {
-                name: self.station.run_self_test(name, user) for name in names
-            },
+            lambda: {name: self.station.run_self_test(name, user) for name in names},
             self,
         )
 

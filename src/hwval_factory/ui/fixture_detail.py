@@ -108,9 +108,7 @@ class FixtureDetailDialog(QDialog):
         status = self.station.status(self.fixture)
         self.pill.set_state(status.state.value, status.state.value)
         if status.step_name:
-            self.step_label.setText(
-                f"{status.step_name} — {status.elapsed_s:.1f} s"
-            )
+            self.step_label.setText(f"{status.step_name} — {status.elapsed_s:.1f} s")
         else:
             self.step_label.setText(status.message or "Ready")
         running = status.state in (FixtureState.RUNNING, FixtureState.LOAD)
@@ -121,7 +119,9 @@ class FixtureDetailDialog(QDialog):
             self._run_id = ctx.run_id
 
             profile = self.station.profile
-            names = [step.name for step in self.station._build_steps(profile, ctx)] if profile else []
+            names = (
+                [step.name for step in self.station._build_steps(profile, ctx)] if profile else []
+            )
             self.steps.set_steps(names)
         if ctx is not None:
             for step in self.station.db.steps(ctx.run_id):
@@ -200,7 +200,7 @@ class FixtureDetailDialog(QDialog):
             self.label_image.setText(f"Preview unavailable: {exc}")
             return
         pixmap = QPixmap()
-        pixmap.loadFromData(payload, b"PNG")
+        pixmap.loadFromData(payload)
         self.label_image.setPixmap(
             pixmap.scaled(
                 860,

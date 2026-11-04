@@ -31,7 +31,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-SYNC = b"\xA5\x5A"
+SYNC = b"\xa5\x5a"
 PROTOCOL_VERSION = 1
 HEADER = struct.Struct("<2sBBHHI")
 CRC = struct.Struct("<I")
@@ -333,7 +333,9 @@ class HwLinkSession:
         return bool(reply.payload.get("ok", True))
 
     def hello(self, timeout: float = 5.0) -> dict[str, Any]:
-        return self.request(MessageType.HELLO, expect=MessageType.HELLO_REPLY, timeout=timeout).payload
+        return self.request(
+            MessageType.HELLO, expect=MessageType.HELLO_REPLY, timeout=timeout
+        ).payload
 
     def status(self) -> dict[str, Any]:
         return self.request(MessageType.STATUS, expect=MessageType.STATUS).payload
@@ -364,7 +366,9 @@ class HwLinkSession:
                 "allow_operator": allow_operator,
             },
         )
-        deadline = time.monotonic() + (timeout if timeout is not None else max(30.0, len(tests) * 2.0))
+        deadline = time.monotonic() + (
+            timeout if timeout is not None else max(30.0, len(tests) * 2.0)
+        )
         results: list[dict[str, Any]] = []
         while True:
             if abort_event is not None and abort_event.is_set():
@@ -480,7 +484,9 @@ class SimulatedDevice:
             elif msg.type == MessageType.PING:
                 self._pending.append(self._emit(MessageType.PONG, {"ok": True}, msg.seq))
             elif msg.type == MessageType.STATUS:
-                self._pending.append(self._emit(MessageType.STATUS, self._status_payload(), msg.seq))
+                self._pending.append(
+                    self._emit(MessageType.STATUS, self._status_payload(), msg.seq)
+                )
             elif msg.type == MessageType.RESET:
                 self._pending.append(self._emit(MessageType.STATUS, {"reset": True}, msg.seq))
             elif msg.type == MessageType.RUN:

@@ -73,7 +73,9 @@ class SessionInfo:
         self.last_activity = time.monotonic()
 
     def locked(self, timeout_minutes: int) -> bool:
-        return timeout_minutes > 0 and (time.monotonic() - self.last_activity) > timeout_minutes * 60
+        return (
+            timeout_minutes > 0 and (time.monotonic() - self.last_activity) > timeout_minutes * 60
+        )
 
 
 class AuthService:
@@ -147,9 +149,7 @@ class AuthService:
     def _locked_until(self, username: str) -> float:
         now = time.monotonic()
         recent = [
-            stamp
-            for stamp in self._failures.get(username, [])
-            if now - stamp < self._LOCKOUT_S
+            stamp for stamp in self._failures.get(username, []) if now - stamp < self._LOCKOUT_S
         ]
         self._failures[username] = recent
         if len(recent) < self._MAX_FAILURES:

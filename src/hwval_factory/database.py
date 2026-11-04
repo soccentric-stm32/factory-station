@@ -610,9 +610,7 @@ class Database:
             return start
 
     def count_serials(self, work_order: str) -> int:
-        value = self.scalar(
-            "SELECT COUNT(*) FROM serial_pool WHERE work_order = ?", (work_order,)
-        )
+        value = self.scalar("SELECT COUNT(*) FROM serial_pool WHERE work_order = ?", (work_order,))
         return int(value or 0)
 
     def add_serials(self, work_order: str, serials: list[str]) -> int:
@@ -1041,7 +1039,7 @@ class Database:
         step_rows = self.fetchall(
             f"""
             SELECT s.name, COUNT(*) AS n FROM steps s JOIN runs r ON r.id = s.run_id
-            WHERE s.result = 'FAIL' AND {where.replace('result', 'r.result')}
+            WHERE s.result = 'FAIL' AND {where.replace("result", "r.result")}
             GROUP BY s.name ORDER BY n DESC
             """,
             params,
@@ -1049,7 +1047,7 @@ class Database:
         test_rows = self.fetchall(
             f"""
             SELECT t.test_id, COUNT(*) AS n FROM test_results t JOIN runs r ON r.id = t.run_id
-            WHERE t.result = 'FAIL' AND {where.replace('result', 'r.result')}
+            WHERE t.result = 'FAIL' AND {where.replace("result", "r.result")}
             GROUP BY t.test_id ORDER BY n DESC
             """,
             params,
@@ -1106,9 +1104,7 @@ class Database:
         return {"fixture": summarise(fixture), "profile": summarise(profile)}
 
     def run_count_for_pcb(self, pcb_serial: str) -> int:
-        value = self.scalar(
-            "SELECT COUNT(*) FROM runs WHERE pcb_serial = ?", (pcb_serial,)
-        )
+        value = self.scalar("SELECT COUNT(*) FROM runs WHERE pcb_serial = ?", (pcb_serial,))
         return int(value or 0)
 
     def failure_count_for_pcb(self, pcb_serial: str) -> int:

@@ -259,13 +259,11 @@ def _parse_elf(path: Path) -> FirmwareImage:
         if len(raw) < 52:
             raise ImageError(f"{path.name}: truncated ELF32 header")
         (entry,) = struct.unpack_from("<I", raw, 24)
-        phoff, = struct.unpack_from("<I", raw, 28)
+        (phoff,) = struct.unpack_from("<I", raw, 28)
         phentsize, phnum = struct.unpack_from("<HH", raw, 42)
         for index in range(phnum):
             offset = phoff + index * phentsize
-            p_type, p_offset, p_vaddr, p_paddr, p_filesz = struct.unpack_from(
-                "<IIIII", raw, offset
-            )
+            p_type, p_offset, p_vaddr, p_paddr, p_filesz = struct.unpack_from("<IIIII", raw, offset)
             if p_type != 1 or p_filesz == 0:
                 continue
             segments.append(Segment(p_paddr or p_vaddr, raw[p_offset : p_offset + p_filesz]))
@@ -273,7 +271,7 @@ def _parse_elf(path: Path) -> FirmwareImage:
         if len(raw) < 64:
             raise ImageError(f"{path.name}: truncated ELF64 header")
         (entry,) = struct.unpack_from("<Q", raw, 24)
-        phoff, = struct.unpack_from("<Q", raw, 32)
+        (phoff,) = struct.unpack_from("<Q", raw, 32)
         phentsize, phnum = struct.unpack_from("<HH", raw, 54)
         for index in range(phnum):
             offset = phoff + index * phentsize

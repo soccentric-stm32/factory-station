@@ -35,6 +35,20 @@ UID_BASE = 0x1FF0F420
 OPTCR = 0x40023C14
 OPTCR1 = 0x40023C18
 
+# Blank F767 option bytes: all sectors unprotected, RDP level 0 (0xAA),
+# BOR level 3, BOOT_ADD0=0x0080 and BOOT_ADD1=0x0040.
+DEFAULT_OPTCR = 0x0FFFAAE4
+DEFAULT_OPTCR1 = 0x00400080
+
+
+def _rdp_level(optcr: int) -> int:
+    raw = (optcr >> 8) & 0xFF
+    if raw == 0xCC:
+        return 2
+    if raw == 0xAA:
+        return 0
+    return 1
+
 
 class SimulatedFault(OpenOcdError):
     """An injected USB/probe/power fault."""
@@ -48,8 +62,8 @@ class SimulatedChip:
     flash_kb: int = 2048
     uid: bytes = b"\x00" * 12
     flash: dict[int, int] = field(default_factory=dict)
-    optcr: int = 0x0FFF00FC
-    optcr1: int = 0x00000FFF
+    optcr: int = DEFAULT_OPTCR
+    optcr1: int = DEFAULT_OPTCR1
     mode: str = "blank"
     test_image_sha: str = ""
     test_image_name: str = ""
@@ -207,8 +221,10 @@ class SimulatedOpenOcd:
         if text.startswith("shutdown"):
             self.stop()
             return ""
-        if text.startswith("verify_image") or text.startswith("program") or text.startswith(
-            "load_image"
+        if (
+            text.startswith("verify_image")
+            or text.startswith("program")
+            or text.startswith("load_image")
         ):
             raise OpenOcdError("use the image methods in the simulator")
         return ""
@@ -300,13 +316,13 @@ class SimulatedOpenOcd:
 
     def write_option_bytes(self, optcr: int, optcr1: int) -> None:
         self._maybe_fault()
-        rdp = (optcr >> 8) & 0xFF
-        if rdp == 2:
+        new_rdp = _rdp_level(optcr)
+        if new_rdp == 2:
             raise OpenOcdError("RDP level 2 is never permitted")
-        previous_rdp = (self.chip.optcr >> 8) & 0xFF
+        previous_rdp = _rdp_level(self.chip.optcr)
         self.chip.optcr = optcr & 0xFFFFFFFF
         self.chip.optcr1 = optcr1 & 0xFFFFFFFF
-        if previous_rdp == 1 and rdp == 0:
+        if previous_rdp == 1 and new_rdp == 0:
             self.chip.erase()
             self._log("RDP regression mass-erased the simulated chip")
 
@@ -376,8 +392,8 @@ class SimulationBank:
         digest = hashlib.sha256(f"{self.fixture}:{pcb_serial}".encode()).digest()
         self.chip.uid = digest[:12]
         self.chip.erase()
-        self.chip.optcr = 0x0FFF00FC
-        self.chip.optcr1 = 0x00000FFF
+        self.chip.optcr = DEFAULT_OPTCR
+        self.chip.optcr1 = DEFAULT_OPTCR1
         self.chip.record = None
         self.device.set_role("HWVAL", "hwval", 0, "")
 

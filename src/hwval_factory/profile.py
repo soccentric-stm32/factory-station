@@ -92,13 +92,9 @@ class CalibrationRule:
     def evaluate(self, value: float) -> float:
         result = safe_eval(self.rule, value)
         if self.minimum is not None and result < self.minimum:
-            raise ProfileError(
-                f"calibration {self.source} = {result} below {self.minimum}"
-            )
+            raise ProfileError(f"calibration {self.source} = {result} below {self.minimum}")
         if self.maximum is not None and result > self.maximum:
-            raise ProfileError(
-                f"calibration {self.source} = {result} above {self.maximum}"
-            )
+            raise ProfileError(f"calibration {self.source} = {result} above {self.maximum}")
         return result
 
 
@@ -197,10 +193,13 @@ class ProtectionSpec:
     def computed_optcr(self) -> int:
         if self.optcr is not None:
             return self.optcr & 0xFFFFFFFF
-        wrp1 = 0xFFF
-        for sector in self.wrp_bank1:
-            wrp1 &= ~(1 << sector)
-        value = (wrp1 & 0xFFF) << 16
+        # The F7 has one nWRP[11:0] field shared by both banks; a sector is
+        # protected when it appears in either profile list.
+        protected = set(self.wrp_bank1) | set(self.wrp_bank2)
+        wrp = 0xFFF
+        for sector in protected:
+            wrp &= ~(1 << sector)
+        value = (wrp & 0xFFF) << 16
         # RDP level 0 is 0xAA on the wire; 0x00 always means level 1.
         value |= (0xAA if self.rdp == 0 else 0x00) << 8
         value |= 1 << 5  # WDG_SW
@@ -217,8 +216,7 @@ class ProtectionSpec:
         # OPTCR1 is BOOT_ADD0[15:0] | BOOT_ADD1[31:16]; keep both.  Writing
         # only the WRP field here used to zero them and lose the ST ROM
         # bootloader entry (BOOT_ADD1 default 0x0040).
-        return ((self.boot_addr0 & 0xFFFF) |
-                ((self.boot_addr1 & 0xFFFF) << 16)) & 0xFFFFFFFF
+        return ((self.boot_addr0 & 0xFFFF) | ((self.boot_addr1 & 0xFFFF) << 16)) & 0xFFFFFFFF
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -305,8 +303,7 @@ class ProductProfile:
     def check_factory_version(self) -> None:
         if not factory_version_allows(self.min_factory_version):
             raise ProfileError(
-                f"profile requires Factory >= {self.min_factory_version}, "
-                f"this is {__version__}"
+                f"profile requires Factory >= {self.min_factory_version}, this is {__version__}"
             )
 
     def cleanup(self) -> None:
@@ -370,9 +367,7 @@ def _parse_images(profile_dir: Path, raw: dict[str, Any]) -> dict[str, ImageSpec
             if not entry:
                 raise ProfileError("manifest.images.app is empty")
             parsed = [parse_one(f"app:{index}", item) for index, item in enumerate(entry)]
-            selected = next(
-                (item for item in parsed if item.slot.upper() == "A"), parsed[0]
-            )
+            selected = next((item for item in parsed if item.slot.upper() == "A"), parsed[0])
             specs["app"] = ImageSpec(
                 role="app",
                 file=selected.file,
@@ -616,9 +611,7 @@ def load_profile(
                     "are enforced; the key inside the manifest is not trusted"
                 )
             if not profile.verify_signature(public_key):
-                raise ProfileError(
-                    "profile signature is required and could not be verified"
-                )
+                raise ProfileError("profile signature is required and could not be verified")
         return profile
     except Exception:
         if tempdir is not None:
@@ -702,9 +695,7 @@ def find_profile(
             public_key=public_key,
         )
     root = Path(profiles_dir)
-    for profile in list_profiles(
-        root, require_signature=require_signature, public_key=public_key
-    ):
+    for profile in list_profiles(root, require_signature=require_signature, public_key=public_key):
         if profile.profile_id == identifier or profile.path.name == identifier:
             return profile
         if identifier == f"{profile.profile_id}@{profile.version}":

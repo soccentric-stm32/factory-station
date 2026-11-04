@@ -81,7 +81,9 @@ class SearchBox(QLineEdit):
         super().__init__()
         self.setPlaceholderText(placeholder)
         self.setClearButtonEnabled(True)
-        self.addAction(icon("search", COLORS["muted"], 18), QLineEdit.ActionPosition.LeadingPosition)
+        self.addAction(
+            icon("search", COLORS["muted"], 18), QLineEdit.ActionPosition.LeadingPosition
+        )
 
 
 class DataTable(QTableWidget):
