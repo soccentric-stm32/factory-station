@@ -221,8 +221,8 @@ class SerialService:
                 )
         return self.usage(wo.name)
 
-    def usage(self, work_order: str) -> dict[str, int]:
-        counts = self.db.serial_counts(work_order)
+    def usage(self, work_order: str) -> dict[str, Any]:
+        counts: dict[str, Any] = self.db.serial_counts(work_order)
         if counts["TOTAL"]:
             counts["free_percent"] = round(counts["FREE"] * 100 / counts["TOTAL"], 1)
         else:
@@ -244,6 +244,7 @@ class SerialService:
         work_order: str,
         *,
         uid: str = "",
+        run_id: int | None = None,
         rework: bool = False,
         need_mac: bool = False,
     ) -> Allocation | None:
@@ -251,7 +252,7 @@ class SerialService:
         if rework and uid:
             serial = self.db.serial_by_uid(uid) or ""
         if not serial:
-            serial = self.db.allocate_serial(work_order) or ""
+            serial = self.db.allocate_serial(work_order, uid=uid, run_id=run_id) or ""
         if not serial:
             return None
         mac = ""
@@ -259,7 +260,7 @@ class SerialService:
             if rework and uid:
                 mac = self.db.mac_by_uid(uid) or ""
             if not mac:
-                mac = self.db.allocate_mac(work_order) or ""
+                mac = self.db.allocate_mac(work_order, uid=uid, run_id=run_id) or ""
             if not mac:
                 self.db.release_serial(serial)
                 return None

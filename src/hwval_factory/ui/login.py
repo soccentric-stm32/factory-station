@@ -138,6 +138,7 @@ class SupervisorDialog(QDialog):
         self.auth = auth
         self.action = action
         self.approved = False
+        self.approved_by = ""
         self.setWindowTitle("Supervisor approval")
         self.setModal(True)
         self.setMinimumWidth(480)
@@ -173,17 +174,18 @@ class SupervisorDialog(QDialog):
         layout.addWidget(self._message)
 
     def _approve(self) -> None:
+        username = self.user.currentText().strip()
         try:
-            session = self.auth.authenticate_pin(
-                self.user.currentText().strip(), self.pin.text()
-            )
+            user = self.auth.verify_credentials(username, self.pin.text())
         except AuthError as exc:
             self._message.setText(str(exc))
             return
-        if session.role.rank < Role.SUPERVISOR.rank:
+        if user.role.rank < Role.SUPERVISOR.rank:
             self._message.setText("this user is not a supervisor")
             return
         self.approved = True
+        self.approved_by = user.username
+        self.auth.db.audit(user.username, "approval", f"{self.action} (approved)")
         self.accept()
 
 

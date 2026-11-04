@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Product Id="*" Name="HWVAL Factory" Language="1033" Version="$(var.Version)"
-           Manufacturer="SoCcentric" UpgradeCode="7C57D2A8-6E2D-4F6E-9A0A-F767FACTORY">
+           Manufacturer="SoCcentric" UpgradeCode="7C57D2A8-6E2D-4F6E-9A0A-7F767FAC7021">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of HWVAL Factory is installed." />
     <MediaTemplate EmbedCab="yes" />

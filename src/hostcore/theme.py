@@ -97,7 +97,7 @@ def apply_theme(app: object) -> None:
     if not hasattr(app, "setStyleSheet"):
         return
     c = COLORS
-    app.setStyleSheet(  # type: ignore[attr-defined]
+    app.setStyleSheet(
         f"""
         * {{
             font-family: -apple-system, "SF Pro Text", "Segoe UI", "Ubuntu", sans-serif;

@@ -84,7 +84,7 @@ class RelayPower(PowerDriver):
     def _connection(self) -> Any:
         if self._serial is None:
             try:
-                import serial  # type: ignore[import-untyped]
+                import serial
             except ImportError as exc:  # pragma: no cover
                 raise PowerError("pyserial is required for relay power control") from exc
             self._serial = serial.Serial(self.port, self.baudrate, timeout=1)
@@ -117,7 +117,7 @@ class SupplyPower(PowerDriver):
     def _connection(self) -> Any:
         if self._serial is None:
             try:
-                import serial  # type: ignore[import-untyped]
+                import serial
             except ImportError as exc:  # pragma: no cover
                 raise PowerError("pyserial is required for supply power control") from exc
             self._serial = serial.Serial(self.port, self.baudrate, timeout=1)

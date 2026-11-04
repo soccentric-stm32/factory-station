@@ -18,7 +18,7 @@ from hwval_factory.auth import AuthService
 from hwval_factory.config import ConfigError, default_station, load_station_config
 from hwval_factory.database import Database, row_dict
 from hwval_factory.labels import LabelError
-from hwval_factory.models import RunKind
+from hwval_factory.models import Role, RunKind
 from hwval_factory.profile import ProductProfile, ProfileError, list_profiles, load_profile
 from hwval_factory.reports import certificate_pdf, export_csv, export_json
 from hwval_factory.station import Station, StationError
@@ -233,7 +233,7 @@ def _run_one(args: argparse.Namespace) -> int:
 def _run_utility(args: argparse.Namespace) -> int:
     config, _simulation = _load_config(args)
     db = Database(config.database)
-    db.initialize()
+    db.initialize(mark_interrupted=False)
     try:
         if args.list_profiles:
             profiles = list_profiles(
@@ -283,6 +283,14 @@ def _run_utility(args: argparse.Namespace) -> int:
         if args.reprint is not None:
             from hwval_factory.labels import LabelService
 
+            row = db.user(args.operator)
+            if row is None or Role(str(row["role"])).rank < Role.SUPERVISOR.rank:
+                print(
+                    "station error: reprinting a label requires a supervisor user "
+                    "(LBL-004); pass --operator <supervisor-or-admin>",
+                    file=sys.stderr,
+                )
+                return 2
             profile = _resolve_profile(args, config)
             service = LabelService(db, config.printer, labels_dir=config.labels_dir)
             result = service.reprint(run_id=args.reprint, user=args.operator)

@@ -152,7 +152,7 @@ class SerialTransport:
 
     def __init__(self, port: str, baudrate: int = 115200, timeout: float = 0.05) -> None:
         try:
-            import serial  # type: ignore[import-untyped]
+            import serial
         except ImportError as exc:  # pragma: no cover - optional at import time
             raise HwLinkError("pyserial is required for serial HWLINK") from exc
         self.port = port
@@ -162,7 +162,7 @@ class SerialTransport:
     def find_by_probe_serial(cls, probe_serial: str, baudrate: int = 115200) -> SerialTransport:
         """Find the VCP belonging to the same physical ST-LINK probe."""
         try:
-            from serial.tools import list_ports  # type: ignore[import-untyped]
+            from serial.tools import list_ports
         except ImportError as exc:  # pragma: no cover
             raise HwLinkError("pyserial is required for serial HWLINK") from exc
         wanted = probe_serial.replace(":", "").lower()
@@ -348,6 +348,7 @@ class HwLinkSession:
         allow_operator: bool = True,
         timeout: float | None = None,
         abort_event: threading.Event | None = None,
+        on_result: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Run a test plan and stream results until ``RUN_REPLY``.
 
@@ -375,6 +376,8 @@ class HwLinkSession:
                 continue
             if msg.type == MessageType.TEST_RESULT:
                 results.append(msg.payload)
+                if on_result is not None:
+                    on_result(msg.payload)
                 continue
             if msg.type == MessageType.RUN_REPLY:
                 return {

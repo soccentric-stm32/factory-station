@@ -443,7 +443,7 @@ def png_to_qimage(payload: bytes) -> Any:
     from PySide6.QtGui import QImage
 
     image = QImage()
-    image.loadFromData(payload, "PNG")
+    image.loadFromData(payload, b"PNG")
     return image
 
 

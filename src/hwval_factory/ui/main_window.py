@@ -127,6 +127,10 @@ class ScannerRouter(QObject):
 
 
 class StationWindow(QMainWindow):
+    _pass_value: QLabel
+    _fail_value: QLabel
+    _fpy_value: QLabel
+
     def __init__(
         self,
         config: StationConfig,
@@ -375,7 +379,7 @@ class StationWindow(QMainWindow):
         self,
         menu: QMenu,
         text: str,
-        callback: Callable[..., None],
+        callback: Callable[..., Any],
         shortcut: str | None = None,
     ) -> QAction:
         action = QAction(text, self)
@@ -451,15 +455,22 @@ class StationWindow(QMainWindow):
             QMessageBox.warning(self, "Fixture", str(exc))
 
     def _supervisor_approval(self, action: str) -> bool:
+        return self._supervisor_approval_user(action) is not None
+
+    def _supervisor_approval_user(self, action: str) -> str | None:
         dialog = SupervisorDialog(self.auth, action, self)
-        return dialog.exec() == QDialog.DialogCode.Accepted and dialog.approved
+        if dialog.exec() != QDialog.DialogCode.Accepted or not dialog.approved:
+            return None
+        return dialog.approved_by or "supervisor"
 
     def _ensure_work_order(self) -> bool:
         if self.station.work_order is not None:
             return True
         if not self._require_role(Role.SUPERVISOR, "select a work order"):
             return False
-        dialog = WorkOrderDialog(self.station, self.profile, self)
+        dialog = WorkOrderDialog(
+            self.station, self.profile, self, user=self._operator()
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
         if self.station.profile is not None:
@@ -471,7 +482,9 @@ class StationWindow(QMainWindow):
     def select_work_order(self) -> None:
         if not self._require_role(Role.SUPERVISOR, "select a work order"):
             return
-        dialog = WorkOrderDialog(self.station, self.profile, self)
+        dialog = WorkOrderDialog(
+            self.station, self.profile, self, user=self._operator()
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             if self.station.profile is not None:
                 self.profile = self.station.profile
@@ -536,10 +549,36 @@ class StationWindow(QMainWindow):
         text = text.strip()
         if text.upper().startswith("WO:"):
             name = text[3:].strip()
-            if name:
+            if not name:
+                return
+            row = self.db.work_order(name)
+            if row is None:
                 self.statusBar().showMessage(
-                    f"Work order barcode {name} scanned — select it in Work Order → Select."
+                    f"Work order {name} is not known; select it in Work Order → Select."
                 )
+                return
+            if not self._require_role(Role.SUPERVISOR, "scan a work order"):
+                return
+            try:
+                self.station.select_work_order(
+                    name,
+                    profile_id=str(row["profile_id"]),
+                    quantity=int(row["quantity"]),
+                    serial_prefix=str(row["serial_prefix"]),
+                    serial_start=int(row["serial_start"]),
+                    serial_end=int(row["serial_end"]),
+                    mac_start=str(row["mac_start"]),
+                    mac_count=int(row["mac_count"]),
+                    user=self._operator(),
+                )
+            except Exception as exc:
+                QMessageBox.warning(self, "Work order", str(exc))
+                return
+            if self.station.profile is not None:
+                self.profile = self.station.profile
+                self.profile_label.setText(self.profile.display)
+            self._refresh_work_order()
+            self.statusBar().showMessage(f"Work order {name} selected from barcode")
             return
         routed = self.station.submit_scan(text)
         if routed:
@@ -659,18 +698,33 @@ class StationWindow(QMainWindow):
             self.history.refresh()
 
     # -- menus --------------------------------------------------------
+    def _run_background(
+        self, title: str, function: Callable[[], Any], on_success: Callable[[Any], Any]
+    ) -> None:
+        thread = _FunctionThread(function, self)
+
+        def _done(result: Any, error: str) -> None:
+            self._threads.remove(thread)
+            if error:
+                QMessageBox.critical(self, title, error)
+                return
+            on_success(result)
+
+        thread.finished_with_result.connect(_done)
+        self._threads.append(thread)
+        thread.start()
+
     def export_csv(self) -> None:
         work_order = self.station.work_order.name if self.station.work_order else ""
         default = f"runs-{work_order or 'all'}.csv"
         path, _ = QFileDialog.getSaveFileName(self, "Export CSV", default, "CSV (*.csv)")
         if not path:
             return
-        try:
-            written = export_csv(self.db, path, work_order=work_order)
-        except Exception as exc:
-            QMessageBox.critical(self, "Export", str(exc))
-            return
-        QMessageBox.information(self, "Export", f"Written to {written}")
+        self._run_background(
+            "Export",
+            lambda: export_csv(self.db, path, work_order=work_order),
+            lambda written: QMessageBox.information(self, "Export", f"Written to {written}"),
+        )
 
     def export_json(self) -> None:
         work_order = self.station.work_order.name if self.station.work_order else ""
@@ -678,12 +732,11 @@ class StationWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Export JSON", default, "JSON (*.json)")
         if not path:
             return
-        try:
-            written = export_json(self.db, path, work_order=work_order)
-        except Exception as exc:
-            QMessageBox.critical(self, "Export", str(exc))
-            return
-        QMessageBox.information(self, "Export", f"Written to {written}")
+        self._run_background(
+            "Export",
+            lambda: export_json(self.db, path, work_order=work_order),
+            lambda written: QMessageBox.information(self, "Export", f"Written to {written}"),
+        )
 
     def print_certificate(self) -> None:
         run_id = self._selected_run()
@@ -694,12 +747,13 @@ class StationWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Certificate of test", default, "PDF (*.pdf)")
         if not path:
             return
-        try:
-            written = certificate_pdf(self.db, run_id, path)
-        except Exception as exc:
-            QMessageBox.critical(self, "Certificate", str(exc))
-            return
-        QMessageBox.information(self, "Certificate", f"Written to {written}")
+        self._run_background(
+            "Certificate",
+            lambda: certificate_pdf(self.db, run_id, path),
+            lambda written: QMessageBox.information(
+                self, "Certificate", f"Written to {written}"
+            ),
+        )
 
     def _selected_run(self) -> int | None:
         selected = self.history.selected_run()
@@ -711,9 +765,12 @@ class StationWindow(QMainWindow):
         return run_id if ok else None
 
     def reprint_label(self, run_id: int) -> None:
-        if not self._supervisor_approval(f"Approve reprint of the label for run {run_id}?"):
+        approved_by = self._supervisor_approval_user(
+            f"Approve reprint of the label for run {run_id}?"
+        )
+        if approved_by is None:
             return
-        user = self._operator()
+        user = f"{self._operator()} (approved by {approved_by})"
         thread = _FunctionThread(
             lambda: self.station.label_service.reprint(run_id=run_id, user=user), self
         )
@@ -742,7 +799,7 @@ class StationWindow(QMainWindow):
     def show_fixtures(self) -> None:
         if not self._require_role(Role.ENGINEER, "edit fixtures"):
             return
-        FixturesDialog(self.station, self).exec()
+        FixturesDialog(self.station, self, user=self._operator()).exec()
 
     def show_profiles(self) -> None:
         profiles = list_profiles(
@@ -764,6 +821,7 @@ class StationWindow(QMainWindow):
                 self.station,
                 self,
                 require_signature=self.config.require_profile_signature,
+                user=self._operator(),
             )
             if imported is not None:
                 self.profile = imported
@@ -782,7 +840,7 @@ class StationWindow(QMainWindow):
     def show_printer(self) -> None:
         if not self._require_role(Role.ENGINEER, "edit the label printer"):
             return
-        PrinterDialog(self.station, self).exec()
+        PrinterDialog(self.station, self, user=self._operator()).exec()
 
     def test_label_print(self) -> None:
         if not self._require_role(Role.SUPERVISOR, "test-print a label"):
@@ -972,7 +1030,7 @@ class StationWindow(QMainWindow):
         self._timer.stop()
         self._probe_timer.stop()
         for thread in list(self._threads):
-            thread.wait(timeout=2000)
+            thread.wait(2000)
         self.station.close()
         self.db.close()
         event.accept()

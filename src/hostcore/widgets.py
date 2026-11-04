@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
@@ -101,7 +103,7 @@ class DataTable(QTableWidget):
                     item.setData(Qt.ItemDataRole.UserRole, value)
                 self.setItem(r, c, item)
 
-    def selected_key(self) -> object | None:
+    def selected_key(self) -> Any:
         row = self.currentRow()
         if row < 0:
             return None
@@ -122,8 +124,10 @@ class StepList(QWidget):
     def set_steps(self, names: list[str]) -> None:
         while self._layout.count():
             item = self._layout.takeAt(0)
-            if item is not None and item.widget() is not None:
-                item.widget().deleteLater()
+            if item is not None:
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
         self._rows.clear()
         for index, name in enumerate(names, 1):
             row = QWidget()

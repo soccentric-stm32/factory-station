@@ -133,7 +133,13 @@ class AuthService:
         except (KeyError, TypeError) as exc:
             raise AuthError("invalid user record") from exc
 
-    def authenticate_pin(self, username: str, pin: str) -> SessionInfo:
+    def verify_credentials(self, username: str, pin: str) -> User:
+        """Check a PIN without activating a session.
+
+        Supervisor approvals must not replace the operator's signed-in
+        session (ACC-002).  This helper is used by approval dialogs; the
+        normal :meth:`authenticate_pin` still installs the session.
+        """
         row = self.db.user(username)
         if row is None or not bool(row["active"]):
             self.db.audit(username or "unknown", "login.fail", "unknown or inactive user")
@@ -142,6 +148,10 @@ class AuthService:
         if not verify_pin(pin, user.pin_hash):
             self.db.audit(username, "login.fail", "bad PIN")
             raise AuthError("unknown user or bad PIN")
+        return user
+
+    def authenticate_pin(self, username: str, pin: str) -> SessionInfo:
+        user = self.verify_credentials(username, pin)
         self.session = SessionInfo(user=user)
         self.db.audit(username, "login", f"role={user.role.value}")
         return self.session

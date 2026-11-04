@@ -104,7 +104,7 @@ class RunContext:
     label_data: dict[str, Any] = field(default_factory=dict)
     step_records: list[StepRecord] = field(default_factory=list)
     test_results: list[TestResult] = field(default_factory=list)
-    calibration: dict[str, Any] = field(default_factory=dict)
+    calibration: dict[int, tuple[float, str]] = field(default_factory=dict)
     image_versions: dict[str, str] = field(default_factory=dict)
     option_bytes: dict[str, int] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)

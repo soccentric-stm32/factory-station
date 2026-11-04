@@ -29,7 +29,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from hostcore.hwlink import HwLinkError, HwLinkSession, SerialTransport, SimulatedTransport
+from hostcore.hwlink import (
+    HwLinkError,
+    HwLinkSession,
+    SerialTransport,
+    SimulatedTransport,
+    Transport,
+)
 from hostcore.images import FirmwareImage, ImageError
 from hostcore.openocd import OpenOcdBackend, OpenOcdError, OpenOcdProcess, OptionBytes
 from hwval_factory.config import StationConfig, validate_station_config
@@ -232,7 +238,13 @@ class Station:
             previous.cleanup()
         self._emit("profile", profile=f"{profile.profile_id}@{profile.version}")
 
-    def load_profile(self, identifier: str, *, require_signature: bool = False) -> ProductProfile:
+    def load_profile(
+        self,
+        identifier: str,
+        *,
+        require_signature: bool = False,
+        user: str = "engineer",
+    ) -> ProductProfile:
         candidate = Path(identifier)
         signature_required = require_signature or self.config.require_profile_signature
         if candidate.exists():
@@ -252,7 +264,7 @@ class Station:
             )
         self.set_profile(profile)
         self.db.audit(
-            "supervisor",
+            user,
             "profile.import",
             f"{profile.profile_id}@{profile.version} from {identifier}",
         )
@@ -1015,6 +1027,8 @@ class Station:
                 test_path,
             )
         backend.reset(halt=False)
+        ctx.metadata["safe_state"] = "test_programmed"
+        self._save_extras(ctx)
         return StepOutcome(
             detail=f"nDBANK=1, erased, programmed {test_path.name}, verified"
         )
@@ -1046,6 +1060,16 @@ class Station:
                         f"test {test_id} is destructive/level E but the profile does not "
                         "allow destructive tests"
                     )
+        ctx.test_results = []
+
+        def _on_result(raw: dict[str, Any]) -> None:
+            test = self._test_result_from_raw(raw)
+            ctx.test_results.append(test)
+            self._update_status(
+                ctx.fixture,
+                message=f"{test.test_id}: {test.result}",
+            )
+
         try:
             result = session.run(
                 plan.tests,
@@ -1053,6 +1077,7 @@ class Station:
                 allow_operator=plan.allow_operator,
                 timeout=plan.timeout_s,
                 abort_event=rt.abort,
+                on_result=_on_result,
             )
         except HwLinkError as exc:
             if rt.abort is not None and rt.abort.is_set():
@@ -1061,20 +1086,7 @@ class Station:
         first_failure: TestResult | None = None
         attempt_results: list[TestResult] = []
         for raw in result.get("tests", []):
-            test = TestResult(
-                test_id=str(raw.get("test_id", "")),
-                result=str(raw.get("result", "FAIL")),
-                measured_value=_optional_float(raw.get("measured_value")),
-                measured_unit=str(raw.get("measured_unit", "")),
-                limit_min=_optional_float(raw.get("limit_min")),
-                limit_max=_optional_float(raw.get("limit_max")),
-                reason=str(raw.get("reason", "")),
-                operator_answer=(
-                    None
-                    if raw.get("operator_answer") is None
-                    else str(raw.get("operator_answer"))
-                ),
-            )
+            test = self._test_result_from_raw(raw)
             attempt_results.append(test)
             if test.result != "PASS" and first_failure is None:
                 first_failure = test
@@ -1085,6 +1097,14 @@ class Station:
                 if first_failure.measured_value is not None:
                     detail += (
                         f"; measured {first_failure.measured_value} "
+                        f"{first_failure.measured_unit}"
+                    )
+                if (
+                    first_failure.limit_min is not None
+                    or first_failure.limit_max is not None
+                ):
+                    detail += (
+                        f"; limits {first_failure.limit_min}..{first_failure.limit_max} "
                         f"{first_failure.measured_unit}"
                     )
                 raise StepFailure(
@@ -1100,6 +1120,22 @@ class Station:
         ctx.metadata["safe_state"] = "tested"
         self._save_extras(ctx)
         return StepOutcome(detail=f"{len(ctx.test_results)} tests passed")
+
+    def _test_result_from_raw(self, raw: dict[str, Any]) -> TestResult:
+        return TestResult(
+            test_id=str(raw.get("test_id", "")),
+            result=str(raw.get("result", "FAIL")),
+            measured_value=_optional_float(raw.get("measured_value")),
+            measured_unit=str(raw.get("measured_unit", "")),
+            limit_min=_optional_float(raw.get("limit_min")),
+            limit_max=_optional_float(raw.get("limit_max")),
+            reason=str(raw.get("reason", "")),
+            operator_answer=(
+                None
+                if raw.get("operator_answer") is None
+                else str(raw.get("operator_answer"))
+            ),
+        )
 
     def _record_test_results(
         self, ctx: RunContext, results: list[TestResult]
@@ -1229,6 +1265,7 @@ class Station:
             rt.allocation = self.serial_service.allocate(
                 work_order,
                 uid=ctx.uid,
+                run_id=ctx.run_id,
                 rework=ctx.kind == RunKind.REWORK,
                 need_mac=profile.identity.mac_enabled,
             )
@@ -1238,8 +1275,21 @@ class Station:
             )
         ctx.serial_number = rt.allocation.serial_number
         ctx.mac = rt.allocation.mac
+        address = provisioning_address(profile)
+        # PRV-005: derive the next revision from both the database and the
+        # record already on the chip, so a rework always increases it even if
+        # a previous database write was interrupted.
+        on_chip_revision = 0
+        try:
+            existing_record = parse_record(
+                backend.read_memory(address, 16384), expect_uid=bytes.fromhex(ctx.uid)
+            )
+            on_chip_revision = existing_record.revision
+        except (RecordError, OpenOcdError):
+            on_chip_revision = 0
         latest = self.db.latest_record(ctx.uid)
-        revision = 1 if latest is None else int(latest["revision"]) + 1
+        db_revision = 0 if latest is None else int(latest["revision"])
+        revision = max(db_revision, on_chip_revision) + 1
         ctx.record_revision = revision
         app_version = (
             profile.app_image.image.version if profile.app_image.image is not None else 0
@@ -1295,7 +1345,6 @@ class Station:
             blob = build_record(data)
         except RecordError as exc:
             raise StepFailure(str(exc)) from exc
-        address = provisioning_address(profile)
         try:
             backend.write_memory(address, blob)
             readback = backend.read_memory(address, len(blob))
@@ -1306,6 +1355,12 @@ class Station:
             raise StepFailure(str(exc)) from exc
         if parsed.serial_number != ctx.serial_number:
             raise StepFailure("provisioning record serial number does not match")
+        # The serial is consumed once the record is durable on the chip, even
+        # if a later optional step (OTP marker, boot check, label) fails.  A
+        # serial written to a unit must stay bound to it (SN-003).
+        self.serial_service.consume(rt.allocation, ctx.uid, ctx.run_id)
+        rt.serial_consumed = True
+        ctx.provisioning_blob = blob
         if isinstance(otp_cfg, dict) and otp_cfg.get("enabled"):
             marker_address = int(str(otp_cfg.get("address") or "0x1FF0F800"), 0)
             marker = hashlib.sha256(
@@ -1315,9 +1370,6 @@ class Station:
             if backend.read_memory(marker_address, len(marker)) != marker:
                 raise StepFailure("OTP marker read-back mismatch")
             ctx.metadata["otp_written"] = True
-        self.serial_service.consume(rt.allocation, ctx.uid, ctx.run_id)
-        rt.serial_consumed = True
-        ctx.provisioning_blob = blob
         self.db.add_record(ctx.uid, revision, ctx.run_id, blob)
         self.db.audit(
             ctx.operator,
@@ -1452,9 +1504,9 @@ class Station:
             data=data,
             user=ctx.operator,
         )
+        ctx.label_pending = bool(result.pending)
         if result.error and self.config.printer.enabled:
             raise StepFailure(f"label printer failed: {result.error}")
-        ctx.label_pending = bool(result.pending)
         self.db.audit(
             ctx.operator,
             "label.print",
@@ -1482,13 +1534,17 @@ class Station:
             bank.openocd.log_callback = lambda text, name=fixture: self._log(name, text)
             return bank.openocd
         config = self.config.fixture(fixture)
+
+        def _log_callback(text: str) -> None:
+            self._log(fixture, text)
+
         backend = OpenOcdProcess(
             config.probe_serial,
             openocd=self.config.openocd.binary,
             interface_cfg=self.config.openocd.interface_cfg,
             target_cfg=self.config.openocd.target_cfg,
             telnet_port=config.telnet_port,
-            log_callback=lambda text, name=fixture: self._log(name, text),
+            log_callback=_log_callback,
         )
         return backend
 
@@ -1498,6 +1554,7 @@ class Station:
         return rt.backend
 
     def _open_session(self, fixture: str, rt: RunRuntime) -> HwLinkSession:
+        transport: Transport
         if self.simulation and self.simulator is not None and rt.bank is not None:
             transport = SimulatedTransport(rt.bank.device)
         else:
@@ -1625,7 +1682,7 @@ class Station:
             return [f.probe_serial for f in self.config.fixtures if f.probe_serial]
         probes: set[str] = set()
         try:
-            from serial.tools import list_ports  # type: ignore[import-untyped]
+            from serial.tools import list_ports
 
             for info in list_ports.comports():
                 haystack = " ".join(

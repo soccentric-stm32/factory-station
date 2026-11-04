@@ -34,11 +34,17 @@ from hwval_factory.station import Station
 
 class WorkOrderDialog(QDialog):
     def __init__(
-        self, station: Station, profile: ProductProfile, parent: QWidget | None = None
+        self,
+        station: Station,
+        profile: ProductProfile,
+        parent: QWidget | None = None,
+        *,
+        user: str = "supervisor",
     ) -> None:
         super().__init__(parent)
         self.station = station
         self.profile = profile
+        self.user = user
         self.setWindowTitle("Select work order")
         self.setModal(True)
         self.setMinimumWidth(560)
@@ -157,6 +163,7 @@ class WorkOrderDialog(QDialog):
                 serial_end=self.serial_end.value() or self.serial_start.value() + self.quantity.value() - 1,
                 mac_start=self.mac_start.text().strip(),
                 mac_count=self.mac_count.value(),
+                user=self.user,
             )
         except Exception as exc:
             QMessageBox.critical(self, "Work order", str(exc))
@@ -165,9 +172,12 @@ class WorkOrderDialog(QDialog):
 
 
 class FixturesDialog(QDialog):
-    def __init__(self, station: Station, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, station: Station, parent: QWidget | None = None, *, user: str = "engineer"
+    ) -> None:
         super().__init__(parent)
         self.station = station
+        self.user = user
         self.config: StationConfig = station.config
         self.setWindowTitle("Fixtures")
         self.resize(980, 480)
@@ -269,7 +279,7 @@ class FixturesDialog(QDialog):
         except Exception as exc:
             QMessageBox.critical(self, "Fixtures", str(exc))
             return
-        self.station.db.audit("engineer", "station.fixtures", str(self.config.config_path))
+        self.station.db.audit(self.user, "station.fixtures", str(self.config.config_path))
         QMessageBox.information(self, "Fixtures", f"Saved {self.config.config_path}")
 
     def _text(self, row: int, col: int) -> str:
@@ -354,7 +364,10 @@ class UsersDialog(QDialog):
         except AuthError as exc:
             QMessageBox.critical(self, "Users", str(exc))
             return
-        self.auth.db.audit(self.auth.current_user().username if self.auth.current_user() else "admin", "user.update", username)
+        current = self.auth.current_user()
+        self.auth.db.audit(
+            current.username if current else "admin", "user.update", username
+        )
         self.pin.clear()
         self.username.clear()
         self.badge.clear()
@@ -392,9 +405,12 @@ class UsersDialog(QDialog):
 
 
 class PrinterDialog(QDialog):
-    def __init__(self, station: Station, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, station: Station, parent: QWidget | None = None, *, user: str = "engineer"
+    ) -> None:
         super().__init__(parent)
         self.station = station
+        self.user = user
         self.setWindowTitle("Label printer")
         self.setModal(True)
         self.setMinimumWidth(520)
@@ -468,7 +484,7 @@ class PrinterDialog(QDialog):
                 QMessageBox.critical(self, "Label printer", str(exc))
                 return
         self.station.db.audit(
-            "engineer",
+            self.user,
             "station.printer",
             f"enabled={self.station.config.printer.enabled} "
             f"host={self.station.config.printer.host} "
@@ -514,7 +530,11 @@ class OperatorPromptDialog(QDialog):
 
 
 def import_profile_dialog(
-    station: Station, parent: QWidget | None = None, *, require_signature: bool = False
+    station: Station,
+    parent: QWidget | None = None,
+    *,
+    require_signature: bool = False,
+    user: str = "engineer",
 ) -> ProductProfile | None:
     chooser = QDialog(parent)
     chooser.setWindowTitle("Import product profile")
@@ -565,7 +585,7 @@ def import_profile_dialog(
             public_key=station.config.profile_public_key or None,
         )
         station.set_profile(profile)
-        station.db.audit("engineer", "profile.import", str(imported))
+        station.db.audit(user, "profile.import", str(imported))
     except Exception as exc:
         QMessageBox.critical(parent, "Profile import", str(exc))
         return None

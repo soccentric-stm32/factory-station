@@ -11,11 +11,12 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 SCHEMA = """
 PRAGMA user_version = 1;
@@ -176,6 +177,24 @@ CREATE INDEX IF NOT EXISTS idx_runs_work_order ON runs(work_order);
 CREATE INDEX IF NOT EXISTS idx_runs_started ON runs(started_at);
 CREATE INDEX IF NOT EXISTS idx_tests_test ON test_results(test_id);
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit(at);
+
+-- TRC-002: records, labels, test results and the audit log are append-only.
+CREATE TRIGGER IF NOT EXISTS records_no_update BEFORE UPDATE ON records
+BEGIN SELECT RAISE(ABORT, 'records are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS records_no_delete BEFORE DELETE ON records
+BEGIN SELECT RAISE(ABORT, 'records are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS labels_no_update BEFORE UPDATE ON labels
+BEGIN SELECT RAISE(ABORT, 'labels are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS labels_no_delete BEFORE DELETE ON labels
+BEGIN SELECT RAISE(ABORT, 'labels are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS tests_no_update BEFORE UPDATE ON test_results
+BEGIN SELECT RAISE(ABORT, 'test results are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS tests_no_delete BEFORE DELETE ON test_results
+BEGIN SELECT RAISE(ABORT, 'test results are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit
+BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit
+BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END;
 """
 
 
@@ -228,12 +247,73 @@ class Database:
             else:
                 conn.execute("COMMIT")
 
-    def initialize(self) -> None:
-        with self._lock:
-            conn = self._conn()
-            conn.executescript(SCHEMA)
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    def initialize(self, *, mark_interrupted: bool = True) -> None:
+        # A second station/CLI process may be starting against the same
+        # database.  Schema creation is idempotent, so retry a transient
+        # lock instead of failing the station (SN-002, FNFR-003).
+        for attempt in range(6):
+            try:
+                with self._lock:
+                    conn = self._conn()
+                    conn.executescript(SCHEMA)
+                    conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                break
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower() or attempt >= 5:
+                    raise
+                time.sleep(0.4 * (attempt + 1))
+        if not mark_interrupted:
+            return
         self.mark_interrupted_runs()
+        # A RESERVED allocation only exists while a fixture worker is between
+        # step 7's allocate and consume.  After a crash/power loss it is stale
+        # and must return to the pool (SN-003).
+        self.release_stale_reservations()
+
+    def release_stale_reservations(self) -> int:
+        now = utcnow()
+        with self.transaction() as conn:
+            # A record that reached the chip means the serial was written even
+            # if the process died before the CONSUMED update.
+            conn.execute(
+                "UPDATE serial_pool SET state = 'CONSUMED', changed_at = ? "
+                "WHERE state = 'RESERVED' AND uid IS NOT NULL AND EXISTS "
+                "(SELECT 1 FROM records WHERE records.uid = serial_pool.uid)",
+                (now,),
+            )
+            conn.execute(
+                "UPDATE mac_pool SET state = 'CONSUMED', changed_at = ? "
+                "WHERE state = 'RESERVED' AND uid IS NOT NULL AND EXISTS "
+                "(SELECT 1 FROM units WHERE units.uid = mac_pool.uid AND units.mac IS NOT NULL)",
+                (now,),
+            )
+            # Otherwise release reservations for finished/interrupted runs and
+            # for allocations that never reached a run.  A reservation owned by
+            # an active run in another process is left alone.
+            serials = conn.execute(
+                "UPDATE serial_pool SET state = 'FREE', uid = NULL, run_id = NULL, "
+                "changed_at = ? WHERE state = 'RESERVED' AND "
+                "(run_id IS NULL OR NOT EXISTS (SELECT 1 FROM runs r "
+                "WHERE r.id = serial_pool.run_id AND r.finished_at IS NULL "
+                "AND r.result IS NULL))",
+                (now,),
+            ).rowcount
+            macs = conn.execute(
+                "UPDATE mac_pool SET state = 'FREE', uid = NULL, run_id = NULL, "
+                "changed_at = ? WHERE state = 'RESERVED' AND "
+                "(run_id IS NULL OR NOT EXISTS (SELECT 1 FROM runs r "
+                "WHERE r.id = mac_pool.run_id AND r.finished_at IS NULL "
+                "AND r.result IS NULL))",
+                (now,),
+            ).rowcount
+        released = int(serials) + int(macs)
+        if released:
+            self.audit(
+                "system",
+                "allocation.release_stale",
+                f"returned {released} reservation(s) to the pool after restart",
+            )
+        return released
 
     def mark_interrupted_runs(self) -> int:
         """EOL-010: any run without a final state is INCOMPLETE after restart."""
@@ -257,15 +337,19 @@ class Database:
         return list(self._conn().execute(sql, params).fetchall())
 
     def fetchone(self, sql: str, params: Sequence[Any] = ()) -> sqlite3.Row | None:
-        return self._conn().execute(sql, params).fetchone()
+        return cast(sqlite3.Row | None, self._conn().execute(sql, params).fetchone())
 
     def scalar(self, sql: str, params: Sequence[Any] = ()) -> Any:
         row = self.fetchone(sql, params)
         return None if row is None else row[0]
 
-    def checkpoint(self) -> None:
+    def checkpoint(self, *, full_sync: bool = False) -> None:
         with self._lock:
-            self._conn().execute("PRAGMA wal_checkpoint(FULL)")
+            conn = self._conn()
+            if full_sync:
+                # FNFR-004: make the WAL durable when a run is closed.
+                conn.execute("PRAGMA synchronous = FULL")
+            conn.execute("PRAGMA wal_checkpoint(FULL)")
 
     # -- runs ----------------------------------------------------------
     def create_run(
@@ -324,7 +408,7 @@ class Database:
         params.append(run_id)
         with self.transaction() as conn:
             conn.execute(f"UPDATE runs SET {', '.join(fields)} WHERE id = ?", params)
-        self.checkpoint()
+        self.checkpoint(full_sync=True)
 
     def update_run_identity(
         self,
@@ -472,6 +556,7 @@ class Database:
         *,
         work_order: str = "",
         profile_id: str = "",
+        since: str = "",
         limit: int = 500,
     ) -> list[sqlite3.Row]:
         clauses: list[str] = []
@@ -489,6 +574,9 @@ class Database:
         if profile_id:
             clauses.append("r.profile_id = ?")
             params.append(profile_id)
+        if since:
+            clauses.append("r.started_at >= ?")
+            params.append(since)
         where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         params.append(limit)
         return self.fetchall(
@@ -551,7 +639,9 @@ class Database:
         counts["TOTAL"] = sum(counts.values())
         return counts
 
-    def allocate_serial(self, work_order: str) -> str | None:
+    def allocate_serial(
+        self, work_order: str, *, uid: str | None = None, run_id: int | None = None
+    ) -> str | None:
         now = utcnow()
         with self.transaction() as conn:
             row = conn.execute(
@@ -563,9 +653,9 @@ class Database:
                 return None
             serial = str(row[0])
             conn.execute(
-                "UPDATE serial_pool SET state = 'RESERVED', changed_at = ? "
-                "WHERE serial_number = ? AND state = 'FREE'",
-                (now, serial),
+                "UPDATE serial_pool SET state = 'RESERVED', uid = ?, run_id = ?, "
+                "changed_at = ? WHERE serial_number = ? AND state = 'FREE'",
+                (uid.upper() if uid else None, run_id, now, serial),
             )
             return serial
 
@@ -609,7 +699,9 @@ class Database:
                 inserted += int(cursor.rowcount)
         return inserted
 
-    def allocate_mac(self, work_order: str) -> str | None:
+    def allocate_mac(
+        self, work_order: str, *, uid: str | None = None, run_id: int | None = None
+    ) -> str | None:
         with self.transaction() as conn:
             row = conn.execute(
                 "SELECT mac FROM mac_pool WHERE work_order = ? AND state = 'FREE' "
@@ -620,9 +712,9 @@ class Database:
                 return None
             mac = str(row[0])
             conn.execute(
-                "UPDATE mac_pool SET state = 'RESERVED', changed_at = ? "
-                "WHERE mac = ? AND state = 'FREE'",
-                (utcnow(), mac),
+                "UPDATE mac_pool SET state = 'RESERVED', uid = ?, run_id = ?, "
+                "changed_at = ? WHERE mac = ? AND state = 'FREE'",
+                (uid.upper() if uid else None, run_id, utcnow(), mac),
             )
             return mac
 
@@ -708,7 +800,7 @@ class Database:
     def add_record(self, uid: str, revision: int, run_id: int, blob: bytes) -> None:
         with self.transaction() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO records (uid, revision, run_id, blob, written_at) "
+                "INSERT INTO records (uid, revision, run_id, blob, written_at) "
                 "VALUES (?, ?, ?, ?, ?)",
                 (uid.upper(), revision, run_id, sqlite3.Binary(blob), utcnow()),
             )
@@ -870,7 +962,7 @@ class Database:
         run_id: int,
         *,
         option_bytes: dict[str, Any] | None = None,
-        calibration: dict[str, Any] | None = None,
+        calibration: dict[Any, Any] | None = None,
         image_versions: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
         provisioning_blob: bytes = b"",
@@ -973,10 +1065,16 @@ class Database:
             "test_pareto": [(str(r[0]), int(r[1])) for r in test_rows],
         }
 
-    def cycle_stats(self) -> dict[str, list[dict[str, Any]]]:
+    def cycle_stats(self, *, since: str = "") -> dict[str, list[dict[str, Any]]]:
+        clause = ""
+        params: list[Any] = []
+        if since:
+            clause = " AND started_at >= ?"
+            params.append(since)
         rows = self.fetchall(
             "SELECT fixture, profile_id, profile_version, started_at, finished_at "
-            "FROM runs WHERE finished_at IS NOT NULL AND result IS NOT NULL"
+            "FROM runs WHERE finished_at IS NOT NULL AND result IS NOT NULL" + clause,
+            params,
         )
         fixture: dict[str, list[float]] = {}
         profile: dict[str, list[float]] = {}

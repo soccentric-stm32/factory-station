@@ -529,9 +529,10 @@ def load_profile(
     elif source.is_file() and zipfile.is_zipfile(source):
         tempdir = tempfile.TemporaryDirectory(prefix="hwval-profile-")
         with zipfile.ZipFile(source) as archive:
+            root = Path(tempdir.name).resolve()
             for member in archive.infolist():
-                target = (Path(tempdir.name) / member.filename).resolve()
-                if not str(target).startswith(str(Path(tempdir.name).resolve())):
+                target = (root / member.filename).resolve()
+                if not target.is_relative_to(root):
                     raise ProfileError("profile archive contains an unsafe path")
             archive.extractall(tempdir.name)
         profile_dir = _find_profile_root(Path(tempdir.name))

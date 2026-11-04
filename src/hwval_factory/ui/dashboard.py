@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
@@ -89,12 +91,20 @@ class DashboardView(QWidget):
         title.setObjectName("Heading")
         self.filter = QComboBox()
         self.filter.addItem("All work orders", "")
+        self.period = QComboBox()
+        self.period.addItem("All time", 0)
+        self.period.addItem("Today", 1)
+        self.period.addItem("Last 7 days", 7)
+        self.period.addItem("Last 30 days", 30)
+        self.period.currentIndexChanged.connect(self.refresh)
         self.refresh_button = QPushButton(icon("refresh", COLORS["text"], 18), "Refresh")
         self.refresh_button.clicked.connect(self.refresh)
         controls.addWidget(title)
         controls.addStretch(1)
         controls.addWidget(QLabel("Work order"))
         controls.addWidget(self.filter)
+        controls.addWidget(QLabel("Period"))
+        controls.addWidget(self.period)
         controls.addWidget(self.refresh_button)
         root.addLayout(controls)
 
@@ -146,16 +156,28 @@ class DashboardView(QWidget):
         self.filter.setCurrentIndex(max(0, index))
         self.filter.blockSignals(False)
 
+    def _since(self) -> str:
+        days = int(self.period.currentData() or 0)
+        if days <= 0:
+            return ""
+        now = datetime.now(UTC)
+        if days == 1:
+            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            start = now - timedelta(days=days)
+        return start.isoformat(timespec="seconds")
+
     def refresh(self) -> None:
         work_order = str(self.filter.currentData() or "")
-        stats = self.db.yield_stats(work_order=work_order)
+        since = self._since()
+        stats = self.db.yield_stats(work_order=work_order, since=since)
         self.fpy.set_value(f"{stats['fpy']:.1f} %", f"{stats['passed']} / {stats['total']}")
         self.rate.set_value(f"{stats['units_per_hour']:.1f}", "units/hour")
         self.cycle.set_value(f"{stats['average_cycle_s']:.1f} s", "average")
         self.total.set_value(str(stats["total"]), f"{stats['failed']} failed")
         self.step_chart.set_items(stats["step_pareto"])
         self.test_chart.set_items(stats["test_pareto"])
-        cycles = self.db.cycle_stats()
+        cycles = self.db.cycle_stats(since=since)
         cycle_rows: list[list[object]] = []
         for group, label in (("fixture", "Fixture"), ("profile", "Profile")):
             for item in cycles[group]:
@@ -169,7 +191,7 @@ class DashboardView(QWidget):
                     ]
                 )
         self.cycle_table.set_rows(cycle_rows)
-        rows = self.db.search_runs(work_order=work_order, limit=200)
+        rows = self.db.search_runs(work_order=work_order, since=since, limit=200)
         self.table.set_rows(
             [
                 [

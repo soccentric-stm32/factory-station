@@ -130,19 +130,34 @@ class FixtureDetailDialog(QDialog):
                     str(step["result"]),
                     None if step["duration_ms"] is None else int(step["duration_ms"]),
                 )
-            rows = [
+            rows: list[list[object]] = [
                 [
-                    row["test_id"],
-                    row["result"],
-                    row["measured_value"],
-                    row["measured_unit"],
-                    row["limit_min"],
-                    row["limit_max"],
-                    row["operator_answer"],
-                    row["reason"],
+                    test.test_id,
+                    test.result,
+                    test.measured_value,
+                    test.measured_unit,
+                    test.limit_min,
+                    test.limit_max,
+                    test.operator_answer,
+                    test.reason,
                 ]
-                for row in self.station.db.tests(ctx.run_id)
+                for test in ctx.test_results
             ]
+            if not rows:
+                # Results from an earlier run (or before this dialog opened).
+                rows = [
+                    [
+                        row["test_id"],
+                        row["result"],
+                        row["measured_value"],
+                        row["measured_unit"],
+                        row["limit_min"],
+                        row["limit_max"],
+                        row["operator_answer"],
+                        row["reason"],
+                    ]
+                    for row in self.station.db.tests(ctx.run_id)
+                ]
             self.tests.set_rows(rows)
             if status.serial_number and status.serial_number != self._label_serial:
                 self._label_serial = status.serial_number
@@ -185,7 +200,7 @@ class FixtureDetailDialog(QDialog):
             self.label_image.setText(f"Preview unavailable: {exc}")
             return
         pixmap = QPixmap()
-        pixmap.loadFromData(payload, "PNG")
+        pixmap.loadFromData(payload, b"PNG")
         self.label_image.setPixmap(
             pixmap.scaled(
                 860,
