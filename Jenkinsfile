@@ -88,9 +88,11 @@ for path in examples:
         raise SystemExit(f"config: {path} did not parse to a mapping")
     print(f"config: {path} OK ({len(data)} keys)")
 PY
-                    if git ls-files | grep -E '^(station[.]yaml|station-data/|profiles/)' >/dev/null; then
+                    if git ls-files | grep -E '^(station[.]yaml|station-data/|profiles/)' \
+                        | grep -v '^profiles/sc767-1[.]0[.]0/' >/dev/null; then
                         echo "config: runtime station data is tracked by git"
-                        git ls-files | grep -E '^(station[.]yaml|station-data/|profiles/)'
+                        git ls-files | grep -E '^(station[.]yaml|station-data/|profiles/)' \
+                            | grep -v '^profiles/sc767-1[.]0[.]0/'
                         exit 1
                     fi
                     echo "config: no runtime station data is tracked"

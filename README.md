@@ -14,10 +14,10 @@ everything for traceability. Up to 8 fixtures run in parallel per PC.
 | | |
 |---|---|
 | Requirements | [SRS.md](SRS.md) — SRS-FACTORY-F767 (v0.1 draft) |
-| Status | **Implemented** — v0.1.0, fixture simulator included |
+| Status | **Hardware contract implemented** — v0.1.0, real HWLINK/IBWH/layout; simulator and pytest suite included |
 | Stack | Python 3.11+, PySide6, pyserial, FlatBuffers (HWLINK), OpenOCD, SQLite, ZPL label printers |
 | Shared core | `src/hostcore` — the in-tree implementation of the planned `soccentric-stm32-hostcore` package |
-| Tests | No pytest suite is included by request of the project owner; the simulator and CLI exercise the full flow without hardware |
+| Tests | `make test` — HWLINK frames, IBWH images, Appendix B metadata, identity vectors, option bytes, serial/MAC and full simulator runs |
 
 ## Quick start (no hardware)
 
@@ -33,12 +33,12 @@ hwval-factory --cli --station examples/station.simulator.yaml \
 
 The default administrator is `admin` / `1234`; change it in
 **Tools → Change PIN** before production use. The demo profile is
-`examples/profile-sc767-demo` with pinned placeholder images.
+`examples/profile-sc767-demo` with small, valid IBWH/HEX/ELF test images.
 
-Run the complete EOL flow with the default four-fixture station:
+Run the complete EOL flow with four simulated fixtures:
 
 ```bash
-hwval-factory-ui --fixtures 4
+hwval-factory-ui --simulate --fixtures 4
 ```
 
 ## EOL flow (default profile)
@@ -66,14 +66,23 @@ hwval-factory-ui --fixtures 4
   Ed25519 signatures, EOL test plan and limits, calibration rules, identity
   rules, option-byte settings and ZPL templates. `hwval-profile
   build|sign|verify|archive|keygen` is the engineer tool.
-* **Provisioning record** — SRS Appendix A header/TLV format with CRC32, chip
+* **HWLINK** — the real COBS + CRC-32 + FlatBuffers protocol from the
+  firmware (`Hello`, `GetDeviceInfo`, `ListTests`, `Run` events,
+  `OperatorPrompt`/`Answer`, `GetStatus`, `GetBootInfo`), with `mode link`
+  entry and request retries. The old JSON protocol is gone.
+* **Images and metadata** — IBWH 256-byte header parsing/validation (magic,
+  size, type, load/entry, header CRC, image CRC, SP/reset vector), Intel HEX,
+  ELF and raw BIN support, and the Appendix B `VERIFIED`/`ACTIVATED`/
+  `CONFIRMED` records at their fixed offsets.
+* **Provisioning record** — `PRV1` header/TLV format with CRC32, chip
   UID binding, mandatory identity fields, MAC, calibration, customer/order and
   custom key/value fields; read-back is compared byte for byte.
 * **Serial and MAC allocation** — atomic SQLite transactions, Luhn check
   digits, configurable ranges/pools, 90 % warning, exhaustion stop, REWORK
   reuse by chip UID.
-* **Protection** — nDBANK/nDBOOT/BOR/WRP/RDP, read-back comparison, RDP level 2
-  rejected everywhere, supervisor-approved RDP lowering for rework.
+* **Protection** — nDBANK/nDBOOT/BOR/WRP/RDP, read-back comparison after a
+  reset, WRP/BOR applied before RDP, RDP level 2 rejected everywhere,
+  supervisor-approved RDP lowering for rework.
 * **Labels** — ZPL II over TCP 9100 or a local queue, preview, test print,
   PDF/PNG fallback with “label pending”, supervisor reprints from stored data.
 * **Traceability** — WAL SQLite schema from Appendix D plus run extras, search
@@ -88,8 +97,10 @@ hwval-factory-ui --fixtures 4
   routing without focus, F1–F8 shortcuts, kiosk mode and the full menu set.
 * **Access** — badge or ID/PIN login, operator/supervisor/engineer/administrator
   roles, salted scrypt PINs, idle session lock.
-* **Simulator** — simulated STM32F767ZI chip, OpenOCD command interface and
-  HWLINK firmware; injectable test failures, operator prompts and USB faults.
+* **Simulator** — simulated STM32F767ZI chip with the real sector map,
+  erase-before-write, WRP/RDP effects and nDBANK mass erase; the same real
+  HWLINK device stack, injectable test failures, operator prompts and USB
+  faults. The host has no `if simulation` branch in the protocol path.
 * **Packaging** — PyInstaller spec, Linux `.deb`/AppImage scripts and a Windows
   MSI (WiX) script in `packaging/`.
 
@@ -109,8 +120,12 @@ packaging/               PyInstaller + .deb/AppImage/MSI packaging
 
 ```bash
 # one unit, exit code 0 PASS / 1 FAIL / 2 station error
-hwval-factory --cli --profile examples/profile-sc767-demo --fixture F1 \
+hwval-factory --cli --simulate --profile examples/profile-sc767-demo --fixture F1 \
   --pcb-serial PCB-0001 --operator alice --json
+
+# hardware bring-up and discovery
+hwval-factory --detect
+hwval-factory --station examples/station.local.yaml --probe --fixture F1
 
 # station utilities
 hwval-factory --list-profiles --profiles-dir examples
@@ -123,15 +138,29 @@ hwval-factory --reprint 42 --operator supervisor
 ## Real hardware checklist
 
 1. Install OpenOCD ≥ 0.12 and the ST-LINK udev rules (Linux).
-2. Copy `examples/station.real.example.yaml`, set station ID, profile store,
-   database, printer and each fixture's ST-LINK serial.
-3. Import or copy a released profile into the station profile store. Use
-   `require_profile_signature: true` and a trusted Ed25519 public key when
-   signatures are mandatory.
-4. Run **Station → Fixtures… → Detect probes**, then **Station → Self-test…**
-   with a golden board.
-5. Verify the option-byte path on the reference board; OPEN-F02 in the SRS
-   remains the place for the final OpenOCD/CubeProgrammer sequence.
+2. Copy `examples/station.local.yaml` or `examples/station.real.example.yaml`
+   outside the repository. `probe_serial: auto` is filled from the connected
+   ST-LINKs; `hwval-factory --detect` prints probes and VCP ports.
+3. Copy a released profile (for example `profiles/sc767-1.0.0/`) into the
+   station profile store. Use `require_profile_signature: true` and a trusted
+   Ed25519 public key when signatures are mandatory.
+4. Run `hwval-factory --station … --probe --fixture F1` for a step-by-step SWD
+   and VCP bring-up, then **Station → Self-test…** with a golden board.
+5. Verify the option-byte write on the reference board (OPEN-B05). The host now
+   uses `stm32f2x options_write 0 <OPTCR> <BOOT_ADD0> <BOOT_ADD1>` with a
+   register fallback, but the bench result must still be recorded.
+
+## Verified where
+
+| Area | Simulator | Real hardware |
+|---|---|---|
+| HWLINK framing/messages, `mode link` | yes | needs a HWVAL/BOOT/APP board |
+| IBWH parsing and metadata writing | yes | needs a board |
+| Option bytes, WRP/BOR/RDP order | yes (model) | bench confirmation required |
+| Identity/TLV record and readback | yes | needs a board |
+| Serial/MAC allocation, labels, DB, MES queue | yes | printer/MES endpoints required |
+
+The simulator is a contract test, not a substitute for the hardware checklist.
 
 See [docs/engineering-guide.md](docs/engineering-guide.md) for profile and
 station details, and [docs/operator-guide.md](docs/operator-guide.md) for the

@@ -1,0 +1,110 @@
+profile: sc767
+version: 1.0.0
+product: SoCcentric STM32F767ZI board
+hw_revisions:
+- B
+- C
+min_factory_version: 0.1.0
+released:
+  by: Sandesh Ghimire
+  at: '2026-11-04'
+parts:
+  dev_id: 1105
+  rev_id:
+  - 4097
+  - 4099
+  flash_kb: 2048
+images:
+  test:
+    file: hwval-1.0.0.elf
+    sha256: 2fb9026e369d8aa3a2e31c37da8381b78c0622eba2c2465678a8c2449bcd85b3
+  boot:
+    file: boot-1.0.0.hex
+    sha256: 541647c5b431410ae59149299208531574445abb9dbc64668527d9350c4b2071
+  app:
+    file: app-0.1.0.img
+    sha256: 3254c7f3afa7eb6ec3a15b6e348a9692959e3ca1b32fd9bfcca9f86a6a6ee24f
+    slot: A
+layout:
+  slot_a: '0x0800C000'
+boot_metadata:
+  address: '0x08008000'
+provisioning:
+  address: '0x08104000'
+  swapped_address: '0x08004000'
+  customer:
+    '0x40': SoCcentric
+  custom: {}
+boot_check:
+  role: APP
+  timeout_s: 15
+hello_timeout_s: 15
+test_plan:
+  tests:
+  - DEV.*
+  - CORE.001
+  - CLK.001
+  - CLK.002
+  - RAM.006
+  - FLS.001
+  - ADC.001
+  - ADC.002
+  - PWR.001
+  - GPIO.004
+  - LED.*
+  - BTN.001
+  - UART.001
+  - ETH.001
+  allow_operator: true
+  timeout_s: 180
+  destructive_allowed: false
+calibration:
+- field: '0x20'
+  from: PWR.001
+  rule: round(value)
+  range:
+  - 3135
+  - 3465
+  unit: mV
+identity:
+  serial: SC767-{yyww}-{counter:06}-{luhn}
+  mac:
+    enabled: true
+    oui_block: 02:00:00:00:00:00/24
+    allow_local: true
+protection:
+  nDBANK: 0
+  nDBOOT: 1
+  BOR_LEV: 3
+  wrp_sectors:
+    bank1:
+    - 0
+    - 1
+    bank2:
+    - 1
+  rdp: 1
+  BOOT_ADD0: 128
+  BOOT_ADD1: 64
+label:
+  template: label-50x25.zpl
+  fields:
+  - serial
+  - mac
+  - product
+  - hw_revision
+  - date
+  - fw_version
+  width_mm: 50
+  height_mm: 25
+steps:
+  enabled:
+    calibrate: true
+    protect: true
+    label: true
+  retries:
+    identify: 1
+    prepare: 1
+    test: 1
+    program: 1
+    boot_check: 2
+    label: 1

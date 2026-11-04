@@ -4,9 +4,12 @@
 
 ```
 src/hostcore/            shared soccentric-stm32-hostcore implementation
-  hwlink.py              HWLINK framing, session, simulator
+  hwlink.py              real HWLINK session (COBS, CRC-32, FlatBuffers)
+  protocol/              shared codec + generated FlatBuffers (from Studio)
+  layout.py              one flash-layout source matching boot_layout.h
+  simulator_device.py    HWLINK role simulator used by the fixture simulator
   openocd.py             OpenOCD process + telnet control
-  images.py              ELF/HEX/BIN/.img parsing, metadata records
+  images.py              ELF/HEX/BIN/IBWH parsing, Appendix B records
   theme.py, widgets.py   shared light theme, icons and widgets
 src/hwval_factory/
   config.py              station.yaml (STN-001)
@@ -102,30 +105,36 @@ consumed at the moment the provisioning record passes read-back; before that
 it is returned to the pool. Abort is checked at every step boundary and during
 scan waits.
 
-Production programming writes BOOT, the app payload into slot A, and the four
-BOOT metadata records (`HEADER`, `VERIFIED`, `ACTIVATED`, `CONFIRMED`) composed
-from the `.img` header. It reads back the app CRC32 and every metadata record.
+Production programming writes BOOT, the app payload into slot A, erases the
+metadata sector once, then appends the 256-byte IBWH header at `+0x000` and the
+`VERIFIED`, `ACTIVATED` and `CONFIRMED` records at `+0x100`, `+0x120` and
+`+0x140` (Appendix B). It reads back the app CRC32 and every record.
 
 ## Provisioning record
 
-The record is at `provisioning.address` (default bank 2 sector 1,
-`0x08104000`). The header and TLV layout follow SRS Appendix A. Calibration
-values are encoded as `kind (0 int32, 1 float32)`, unit code, then four bytes;
-custom fields are `key\0value` under types `0x80…0xFE`. `parse_record()` checks
-magic, format, TLV CRC32, header CRC32 and optionally the chip UID.
+The record is in the identity area at `provisioning.address` (bank 2 sector
+13, `0x08104000`; `0x08004000` when bank 2 is swapped). The header and TLV
+layout follow the identity contract: magic `PRV1`, format, revision, length,
+UID and CRC-32. Calibration values are encoded as `kind (0 int32, 1 float32)`,
+unit code, then four bytes; custom fields are `key\0value` under types
+`0x80…0xFE`. `parse_record()` checks magic, format, TLV CRC32, header CRC32 and
+optionally the chip UID.
 
 ## Simulator and CLI
 
-The simulator is the default when no station file is given:
+The simulator is selected explicitly; the GUI refuses to start without a
+station file unless `--simulate` is given:
 
 ```
-hwval-factory --cli --profile examples/profile-sc767-demo --fixture F1 \
+hwval-factory --cli --simulate --profile examples/profile-sc767-demo --fixture F1 \
   --pcb-serial PCB-0001 --json
+hwval-factory --detect
+hwval-factory --station examples/station.local.yaml --probe --fixture F1
 ```
 
 Exit codes: `0` PASS, `1` FAIL/ABORTED/INCOMPLETE, `2` station error. Use
 `--fail-test CLK.001 --fault-rate 0.01` to exercise failure and USB-loss paths.
-The simulator's UI is launched with `hwval-factory-ui --fixtures 4`.
+The simulator's UI is launched with `hwval-factory-ui --simulate --fixtures 4`.
 
 ## Protection
 
@@ -151,6 +160,10 @@ See `packaging/README.md`. Station data stays outside the install tree.
 ## Verification without hardware
 
 The simulator covers the full flow, prompts, injected test failures, USB
-faults, protection read-back, boot identity and label fallback. Use the UI
-fixture tiles for demonstration and the CLI for scripted line checks. No
-pytest suite is included in this delivery by request of the project owner.
+faults, protection read-back, boot identity and label fallback. It uses the
+real HWLINK stack, the real flash sector map and erase-before-write rules.
+
+`make test` runs the pytest suite: HWLINK frames/parser, IBWH images and
+Appendix B records, identity vectors, option bytes, serial/MAC allocation,
+profile/layout validation, simulated flash semantics and full PASS/FAIL runs.
+These are contract tests; the hardware checklist in the README still applies.

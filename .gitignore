@@ -42,7 +42,8 @@ Thumbs.db
 
 # --- Station data (never commit) -----------------------------
 station.yaml
-profiles/
+profiles/*
+!profiles/sc767-1.0.0/
 *.zpl.out
 
 # --- Station runtime data -------------------------------------

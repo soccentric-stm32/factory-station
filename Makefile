@@ -35,7 +35,7 @@ PACKAGING_STAMP := $(VENV)/.hwval-packaging-installed
 # Source-tree runs work without an editable install.
 export PYTHONPATH := src$(if $(PYTHONPATH),$(PATHSEP)$(PYTHONPATH))
 
-.PHONY: help venv install dev packaging-deps run demo smoke self-test \
+.PHONY: help venv install dev packaging-deps run demo smoke self-test test \
 	lint format typecheck check build package-linux package-windows \
 	version clean clean-data clean-all
 
@@ -101,6 +101,9 @@ smoke: install ## Version, fixture list, self-test and one simulated unit
 self-test: install ## Run the fixture golden-board self-test
 	$(PY) -m hwval_factory --self-test --station $(STATION) \
 		--profile $(PROFILE) --fixture $(FIXTURE)
+
+test: dev ## Run the pytest contract and simulator suite
+	$(PY) -m pytest
 
 lint: dev ## Run ruff
 	$(PY) -m ruff check src packaging/launcher.py
