@@ -10,6 +10,36 @@ and recorded.
 
 ---
 
+## 0. Implementation status (2026-11-04)
+
+The factory-side P0 contract work is implemented and covered by `make test`:
+
+| Area | Status |
+|---|---|
+| B-01…B-03 real HWLINK framing, `mode link`, catalogue + Run events + prompts | done |
+| B-04 IBWH image parser/builder | done |
+| B-05 Appendix B header/VERIFIED/ACTIVATED/CONFIRMED writer | done |
+| B-06/B-07 flash writes and `options_write <bank> <user> <boot0> <boot1>` | done (bench confirmation still required) |
+| B-08 one layout module and profile layout validation | done |
+| B-09 released profile from real BOOT/HWVAL/application builds | done (`profiles/sc767-1.0.0`) |
+| B-10/B-14 boot check plus identity readback | done |
+| B-11/B-12 `--detect`, `station.local.yaml`, `--probe`, GUI bring-up | done |
+| C-01…C-03 real protocol simulator, flash layout and BOOT metadata | done |
+| D-01 identity contract (`PRV1`, CRC, UID binding) | done; magic corrected from `1VRP` |
+| E-01/E-02 protection order, post-protection boot check, RDP 2 blocked | done |
+| J-01/J-02 pytest suite and cross-repo contract checks | done |
+| J-05 ruff and mypy gates | done |
+
+Still requiring the firmware repositories or hardware:
+
+* A-01, A-03, A-05, A-06: bootloader `boot_layout.h` identity area, C/Rust/Zephyr
+  identity readers, `GetIdentity` HWLINK message and MAC use.
+* B-13 loading the app through BOOT over VCP (`app_load: swd | boot`).
+* J-04 nightly hardware-in-the-loop run.
+* The bench confirmation in OPEN-B05, and all real-instrument tests in F/G.
+
+---
+
 ## 1. Where the app stands today
 
 The station framework is in place: about 12k lines covering the fixture engine,
