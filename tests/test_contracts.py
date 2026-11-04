@@ -46,6 +46,10 @@ def test_boot_layout_constants_match_firmware() -> None:
     assert define("BOOT_META_HEADER_SIZE") == layout.META_HEADER_SIZE
     assert define("BOOT_SLOT_SIZE") == layout.SLOT_SIZE
     assert define("BOOT_META_SIZE") == layout.META_SIZE
+    assert define("BOOT_IDENTITY_OFFSET") == 0x4000
+    assert define("BOOT_IDENTITY_SIZE") == layout.IDENTITY_SIZE
+    assert define("BOOT_BANK2_BASE") + define("BOOT_IDENTITY_OFFSET") == layout.IDENTITY_BASE
+    assert define("BOOT_BANK1_BASE") + define("BOOT_IDENTITY_OFFSET") == layout.IDENTITY_BASE_SWAPPED
 
 
 def test_image_header_magic_matches_mkimage() -> None:

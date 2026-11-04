@@ -14,7 +14,7 @@ everything for traceability. Up to 8 fixtures run in parallel per PC.
 | | |
 |---|---|
 | Requirements | [SRS.md](SRS.md) — SRS-FACTORY-F767 (v0.1 draft) |
-| Status | **Hardware contract implemented** — v0.1.0, real HWLINK/IBWH/layout; simulator and pytest suite included |
+| Status | **Hardware contract implemented** — v0.1.0, real HWLINK/IBWH/layout, identity readers in C/Rust/Zephyr; simulator and pytest suite included |
 | Stack | Python 3.11+, PySide6, pyserial, FlatBuffers (HWLINK), OpenOCD, SQLite, ZPL label printers |
 | Shared core | `src/hostcore` — the in-tree implementation of the planned `soccentric-stm32-hostcore` package |
 | Tests | `make test` — HWLINK frames, IBWH images, Appendix B metadata, identity vectors, option bytes, serial/MAC and full simulator runs |

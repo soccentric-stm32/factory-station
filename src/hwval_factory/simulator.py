@@ -507,6 +507,16 @@ class FactorySimulatedDevice(BaseSimulatedDevice):
         name = self.chip.test_image_name or "HWVAL"
         return name, _version_text(self.chip.test_image_version or self._override_version)
 
+    def _identity_detail(self) -> str:
+        record = self.chip.parse_record()
+        if record is None:
+            return "no identity"
+        return (
+            f"PRV1 serial={record.serial_number};mac={record.mac};"
+            f"hw={record.hw_revision};product={record.product_id};"
+            f"profile={record.profile};revision={record.revision}"
+        )
+
     def _hello_reply(self) -> bytes:
         name, version = self._firmware_for_role()
         flash_mode = FlashMode.DUAL_BANK if (self.chip.optcr >> 29) & 1 == 0 else FlashMode.SINGLE_BANK
@@ -520,7 +530,7 @@ class FactorySimulatedDevice(BaseSimulatedDevice):
             dev_id=self.chip.dev_id,
             rev_id=self.chip.rev_id,
             flash_mode=flash_mode,
-            detail="simulated device",
+            detail=self._identity_detail() if self.role == Role.DEMO else "simulated device",
         )
 
     def _on_26(self, table: Any, seq: int) -> list[bytes]:  # GetDeviceInfo

@@ -29,6 +29,9 @@ The factory-side P0 contract work is implemented and covered by `make test`:
 | D-01 identity contract (`PRV1`, CRC, UID binding) | done; magic corrected from `1VRP` |
 | D-02 MAC sources: OUI, imported CSV pool, UID-derived local MAC | done (external EEPROM source not enabled) |
 | D-03 serial templates with standard tokens | done (pre-printed-label reservation uses the normal serial range) |
+| A-01 identity area in boot_layout.h; BOOT refuses to erase sector 13 | done |
+| A-03/A-04 identity reader in C, Rust/Embassy and Zephyr applications | done |
+| A-05 identity reported over HWLINK (`HelloReply.detail`, PRV1 keys) | done |
 | E-01/E-02 protection order, post-protection boot check, RDP 2 blocked | done |
 | F-04 lid/clamp and board-present inputs (none/gpio drivers) | done |
 | F-05/F-06 self-test expiry and insertion maintenance block production | done |

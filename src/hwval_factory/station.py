@@ -1550,6 +1550,18 @@ class Station:
             reported_uid = int(status.get("uid", 0))
             if reported_uid and reported_uid != _uid64(ctx.uid):
                 raise StepFailure(f"booted chip UID {reported_uid:#x} does not match {_uid64(ctx.uid):#x}")
+        reported_identity = _parse_identity_detail(str(hello.get("detail", "")))
+        if reported_identity.get("serial"):
+            if reported_identity["serial"] != ctx.serial_number:
+                raise StepFailure(
+                    f"application identity serial {reported_identity['serial']!r} "
+                    f"!= provisioned {ctx.serial_number!r}"
+                )
+            if ctx.mac and reported_identity.get("mac", "").upper() != ctx.mac.upper():
+                raise StepFailure(
+                    f"application identity MAC {reported_identity.get('mac')!r} "
+                    f"!= provisioned {ctx.mac!r}"
+                )
         self._close_session(rt)
         # B-10/B-14: read the identity record back over SWD and compare it to
         # the serial/MAC allocated for this run.  This runs before RDP 1.
@@ -1592,6 +1604,7 @@ class Station:
                 f"booted firmware version {reported_version!r} != expected {expected_version!r}"
             )
         ctx.metadata["safe_state"] = "boot_checked"
+        ctx.metadata["identity_over_hwlink"] = reported_identity
         ctx.metadata["identity_readback"] = {
             "address": address,
             "revision": record.revision,
@@ -2149,6 +2162,18 @@ class Station:
             for input_driver in drivers.values():
                 with contextlib.suppress(Exception):
                     input_driver.close()
+
+
+def _parse_identity_detail(text: str) -> dict[str, str]:
+    """Parse the PRV1 key=value detail added to HelloReply by the app (A-05)."""
+    if not text.startswith("PRV1 "):
+        return {}
+    result: dict[str, str] = {}
+    for part in text[5:].split(";"):
+        key, sep, value = part.partition("=")
+        if sep and key:
+            result[key.strip()] = value.strip()
+    return result
 
 
 def _uid_word_hex(uid_hex: str) -> str:
