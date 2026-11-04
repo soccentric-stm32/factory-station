@@ -24,6 +24,7 @@ class FixtureConfig:
     position: int = 0
     golden_uid: str = ""
     power: dict[str, Any] = field(default_factory=dict)
+    inputs: dict[str, Any] = field(default_factory=dict)
 
     @property
     def has_probe(self) -> bool:
@@ -127,6 +128,7 @@ class StationConfig:
                     "position": f.position,
                     "golden_uid": f.golden_uid,
                     "power": f.power,
+                    "inputs": f.inputs,
                 }
                 for f in self.fixtures
             ],
@@ -265,6 +267,7 @@ def _fixture_from_dict(raw: dict[str, Any], index: int, base_port: int) -> Fixtu
         position=_as_int(raw.get("position"), index),
         golden_uid=str(raw.get("golden_uid") or ""),
         power=dict(raw.get("power") or {}),
+        inputs=dict(raw.get("inputs") or {}),
     )
 
 

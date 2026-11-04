@@ -146,6 +146,22 @@ Exit codes: `0` PASS, `1` FAIL/ABORTED/INCOMPLETE, `2` station error. Use
 `--fail-test CLK.001 --fault-rate 0.01` to exercise failure and USB-loss paths.
 The simulator's UI is launched with `hwval-factory-ui --simulate --fixtures 4`.
 
+## Fixture safety inputs
+
+A fixture can declare `inputs.lid` and `inputs.board_present` with the `none`
+or `gpio` driver. The worker checks the lid at every step boundary and checks
+board presence after the scan; an open lid or missing board fails the run with
+a clear reason instead of continuing into programming.
+
+```yaml
+fixtures:
+  - name: F1
+    probe_serial: auto
+    inputs:
+      lid: {driver: gpio, value_path: /sys/class/gpio/gpio42/value, active_high: true}
+      board_present: {driver: none}
+```
+
 ## Protection
 
 Profiles set `nDBANK`, `nDBOOT`, `BOR_LEV`, `nWRP` per bank and `RDP`. Factory

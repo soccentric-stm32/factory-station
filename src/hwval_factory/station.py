@@ -53,6 +53,7 @@ from hwval_factory.identity import (
     now_utc,
     parse_record,
 )
+from hwval_factory.inputs import InputDriver, InputError, create_inputs
 from hwval_factory.labels import LabelService, label_data
 from hwval_factory.mes import MesService
 from hwval_factory.models import (
@@ -227,11 +228,16 @@ class Station:
         self._log_buffers: dict[str, list[str]] = {f.name: [] for f in config.fixtures}
         self._last_mes_queue = 0
         self._power: dict[str, PowerDriver] = {}
+        self._inputs: dict[str, dict[str, InputDriver]] = {}
         for fixture in config.fixtures:
             try:
                 self._power[fixture.name] = create_power_driver(fixture.power)
             except PowerError:
                 self._power[fixture.name] = create_power_driver({})
+            try:
+                self._inputs[fixture.name] = create_inputs(fixture.inputs)
+            except InputError:
+                self._inputs[fixture.name] = {}
         self.mes.start()
 
     # -- profile and work order ---------------------------------------
@@ -608,6 +614,7 @@ class Station:
             for index, step in enumerate(steps, 1):
                 if worker.abort.is_set():
                     raise AbortedError("aborted by operator")
+                self._check_lid(fixture)
                 self._update_status(
                     fixture,
                     state=FixtureState.RUNNING,
@@ -921,6 +928,7 @@ class Station:
             raise StepFailure(
                 f"board {ctx.pcb_serial} already passed in run {passed[0]['id']}; use rework"
             )
+        self._check_board_present(ctx.fixture)
         if self.simulation and self.simulator is not None:
             self.simulator.bank(ctx.fixture).select_board(ctx.pcb_serial)
         self.db.update_run_identity(ctx.run_id, pcb_serial=ctx.pcb_serial)
@@ -1874,6 +1882,29 @@ class Station:
                 )
         return layout.META_A_BASE
 
+    def _check_lid(self, fixture: str) -> None:
+        lid = self._inputs.get(fixture, {}).get("lid")
+        if lid is None:
+            return
+        try:
+            closed = lid.closed()
+        except InputError as exc:
+            raise StepFailure(f"fixture lid input failed: {exc}") from exc
+        if not closed:
+            raise StepFailure("fixture lid/clamp is open; close it before continuing")
+
+    def _check_board_present(self, fixture: str) -> None:
+        present = self._inputs.get(fixture, {}).get("board_present")
+        if present is None:
+            return
+        try:
+            ok = present.present()
+        except InputError as exc:
+            raise StepFailure(f"board-present input failed: {exc}") from exc
+        if not ok:
+            raise StepFailure("no board detected in the fixture")
+
+    # -- self test and probes ----------------------------------------
     # -- self test and probes ----------------------------------------
     def detect_probes(self) -> list[str]:
         if self.simulation:
@@ -2114,6 +2145,10 @@ class Station:
         for driver in self._power.values():
             with contextlib.suppress(Exception):
                 driver.close()
+        for drivers in self._inputs.values():
+            for input_driver in drivers.values():
+                with contextlib.suppress(Exception):
+                    input_driver.close()
 
 
 def _uid_word_hex(uid_hex: str) -> str:
