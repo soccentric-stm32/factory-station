@@ -94,7 +94,7 @@ hwval-factory-ui --simulate --fixtures 4
   uplink with retry/back-off and a visible queue length.
 * **Station** — YAML configuration for 1–8 fixtures, ST-LINK detection and VCP
   matching by probe serial, pluggable power control, insertion/maintenance
-  counters, golden-board self-test with age warning.
+  counters, and a golden-board self-test that blocks production when due.
 * **UI** — large fixture tiles (PASS/FAIL/icon/word/colour/sound), live fixture
   detail, yield dashboard with Pareto and cycle times, unit history, scanner
   routing without focus, F1–F8 shortcuts, kiosk mode and the full menu set.

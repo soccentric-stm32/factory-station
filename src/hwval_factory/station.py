@@ -421,6 +421,24 @@ class Station:
         config = self.config.fixture(fixture)
         if not config.enabled:
             raise StationError(f"fixture {fixture} is disabled")
+        if not self.simulation:
+            # F-05: production is blocked when the golden-board self-test is
+            # missing or older than the configured interval.
+            interval = self.config.self_test_interval_hours
+            age = self.db.self_test_age_hours(fixture)
+            if interval > 0 and (age is None or age > interval):
+                raise StationError(
+                    f"fixture {fixture} self-test is due "
+                    f"({'never passed' if age is None else f'{age:.1f} h > {interval} h'})"
+                )
+            # F-06: warn at the maintenance count and block beyond the margin.
+            stats = self.db.fixture_stats(fixture)
+            insertions = 0 if stats is None else int(stats["insertions"])
+            if insertions >= self.config.maintenance_count + self.config.maintenance_margin:
+                raise StationError(
+                    f"fixture {fixture} maintenance limit exceeded "
+                    f"({insertions} insertions, reset required)"
+                )
         with self._lock:
             existing = self._workers.get(fixture)
             if existing is not None and not existing.done.is_set():

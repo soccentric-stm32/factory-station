@@ -77,6 +77,7 @@ class StationConfig:
     retest_after_failures: int = 2
     self_test_interval_hours: int = 24
     maintenance_count: int = 10000
+    maintenance_margin: int = 1000
     require_profile_signature: bool = False
     profile_public_key: str = ""
     kiosk: bool = False
@@ -148,6 +149,7 @@ class StationConfig:
                 "retest_after_failures": self.retest_after_failures,
                 "self_test_interval_hours": self.self_test_interval_hours,
                 "maintenance_count": self.maintenance_count,
+                "maintenance_margin": self.maintenance_margin,
                 "require_profile_signature": self.require_profile_signature,
                 "profile_public_key": self.profile_public_key,
             },
@@ -322,6 +324,7 @@ def load_station_config(path: str | Path | None) -> StationConfig:
         retest_after_failures=_as_int(security.get("retest_after_failures"), 2),
         self_test_interval_hours=_as_int(security.get("self_test_interval_hours"), 24),
         maintenance_count=_as_int(security.get("maintenance_count"), 10000),
+        maintenance_margin=_as_int(security.get("maintenance_margin"), 1000),
         require_profile_signature=_as_bool(security.get("require_profile_signature"), False),
         profile_public_key=str(security.get("profile_public_key") or ""),
         kiosk=_as_bool(raw.get("kiosk"), False),
