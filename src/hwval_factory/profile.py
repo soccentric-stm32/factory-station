@@ -459,7 +459,7 @@ def _parse_identity(raw: dict[str, Any]) -> IdentitySpec:
     if not isinstance(mac, dict):
         raise ProfileError("identity.mac must be a mapping")
     source = str(mac.get("source") or "oui").strip().lower()
-    if source not in ("oui", "import"):
+    if source not in ("oui", "import", "local"):
         raise ProfileError(f"unsupported identity.mac.source {source!r}")
     return IdentitySpec(
         serial_format=serial_format,

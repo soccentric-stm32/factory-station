@@ -27,6 +27,8 @@ The factory-side P0 contract work is implemented and covered by `make test`:
 | B-13 application load through BOOT over VCP (`app_load: boot`) | done |
 | C-01…C-03 real protocol simulator, flash layout and BOOT metadata | done |
 | D-01 identity contract (`PRV1`, CRC, UID binding) | done; magic corrected from `1VRP` |
+| D-02 MAC sources: OUI, imported CSV pool, UID-derived local MAC | done (external EEPROM source not enabled) |
+| D-03 serial templates with standard tokens | done (pre-printed-label reservation uses the normal serial range) |
 | E-01/E-02 protection order, post-protection boot check, RDP 2 blocked | done |
 | J-01/J-02 pytest suite and cross-repo contract checks | done |
 | J-03 pytest-qt UI smoke, scenario CLI and MES idempotency | done |

@@ -33,3 +33,15 @@ def test_mac_format_and_oui() -> None:
     assert prefix == value - 1
     assert mask == 0xFFFFFF000000
     assert capacity == 1 << 24
+
+
+def test_locally_administered_mac_is_stable_and_unicast() -> None:
+    from hwval_factory.serials import locally_administered_mac
+
+    uid = "002A004B3337500D37323336"
+    first = locally_administered_mac(uid)
+    assert first == locally_administered_mac(uid)
+    value = parse_mac(first)
+    assert not value & 0x010000000000  # unicast
+    assert value & 0x020000000000      # locally administered
+    assert first != locally_administered_mac(uid, 1)

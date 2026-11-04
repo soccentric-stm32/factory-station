@@ -7,6 +7,7 @@ fixtures, threads or restarts.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -162,9 +163,9 @@ def mac_range(profile: ProductProfile, wo: WorkOrder) -> list[str]:
     spec = profile.identity
     if not spec.mac_enabled:
         return []
-    if spec.mac_source == "import":
-        # The pool is loaded from a CSV with `--import-macs`; the work order
-        # must already own those rows.
+    if spec.mac_source in ("import", "local"):
+        # `import`: the pool is loaded from a CSV with `--import-macs`.
+        # `local`: the MAC is derived from the chip UID at allocation time.
         return []
     prefix, mask, capacity = parse_oui_block(spec.oui_block)
     if wo.mac_start:
@@ -193,6 +194,15 @@ def mac_range(profile: ProductProfile, wo: WorkOrder) -> list[str]:
 class Allocation:
     serial_number: str
     mac: str = ""
+
+
+def locally_administered_mac(uid_hex: str, salt: int = 0) -> str:
+    """Derive a stable, unicast, locally administered MAC from the chip UID."""
+    raw_uid = bytes.fromhex(uid_hex)
+    digest = hashlib.sha256(raw_uid + salt.to_bytes(4, "little")).digest()
+    value = bytearray(digest[:6])
+    value[0] = (value[0] & 0xFC) | 0x02  # unicast + locally administered
+    return format_mac(int.from_bytes(value, "big"))
 
 
 class SerialService:
@@ -263,6 +273,7 @@ class SerialService:
         run_id: int | None = None,
         rework: bool = False,
         need_mac: bool = False,
+        local_mac: bool = False,
     ) -> Allocation | None:
         serial = ""
         if rework and uid:
@@ -275,6 +286,17 @@ class SerialService:
         if need_mac:
             if rework and uid:
                 mac = self.db.mac_by_uid(uid) or ""
+            if not mac and local_mac and uid:
+                salt = 0
+                while salt < 1024:
+                    candidate = locally_administered_mac(uid, salt)
+                    owner = self.db.scalar(
+                        "SELECT uid FROM units WHERE mac = ? LIMIT 1", (candidate,)
+                    )
+                    if owner is None or str(owner).upper() == uid.upper():
+                        mac = candidate
+                        break
+                    salt += 1
             if not mac:
                 mac = self.db.allocate_mac(work_order, uid=uid, run_id=run_id) or ""
             if not mac:

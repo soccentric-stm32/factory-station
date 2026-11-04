@@ -81,8 +81,8 @@ hwval-factory-ui --simulate --fixtures 4
   UID binding, mandatory identity fields, MAC, calibration, customer/order and
   custom key/value fields; read-back is compared byte for byte.
 * **Serial and MAC allocation** — atomic SQLite transactions, Luhn check
-  digits, configurable ranges/pools, 90 % warning, exhaustion stop, REWORK
-  reuse by chip UID.
+  digits, configurable ranges/pools, OUI/imported-CSV/UID-derived local MAC
+  sources, 90 % warning, exhaustion stop, REWORK reuse by chip UID.
 * **Protection** — nDBANK/nDBOOT/BOR/WRP/RDP, read-back comparison after a
   reset, WRP/BOR applied before RDP, RDP level 2 rejected everywhere,
   supervisor-approved RDP lowering for rework.

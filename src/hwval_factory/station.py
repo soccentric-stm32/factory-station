@@ -1368,6 +1368,7 @@ class Station:
                 run_id=ctx.run_id,
                 rework=ctx.kind == RunKind.REWORK,
                 need_mac=profile.identity.mac_enabled,
+                local_mac=profile.identity.mac_source == "local",
             )
         if rt.allocation is None:
             raise StepFailure("no serial number available (range exhausted or MAC pool empty)")
