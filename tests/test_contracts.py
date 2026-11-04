@@ -25,7 +25,7 @@ def _read(path: Path) -> str:
 
 
 def test_boot_layout_constants_match_firmware() -> None:
-    text = _read(WORKSPACE / "soccentric-stm32-bootloader/src/common/boot_layout.h")
+    text = _read(WORKSPACE / "bootloader/src/common/boot_layout.h")
 
     def define(name: str) -> int:
         match = re.search(rf"#define\s+{name}\s+(0x[0-9A-Fa-f]+|\d+)", text)
@@ -53,7 +53,7 @@ def test_boot_layout_constants_match_firmware() -> None:
 
 
 def test_image_header_magic_matches_mkimage() -> None:
-    text = _read(WORKSPACE / "soccentric-stm32-bootloader/tools/mkimage.py")
+    text = _read(WORKSPACE / "bootloader/tools/mkimage.py")
     match = re.search(r"MAGIC\s*=\s*(0x[0-9A-Fa-f]+)", text)
     assert match and int(match.group(1), 16) == layout.IMAGE_MAGIC
     assert re.search(r"HEADER_SIZE\s*=\s*256", text)
@@ -61,9 +61,9 @@ def test_image_header_magic_matches_mkimage() -> None:
 
 
 def test_hwlink_schema_snapshot_matches_firmware() -> None:
-    firmware = _read(WORKSPACE / "soccentric-stm32-validation-firmware/protocol/hwlink.fbs")
+    firmware = _read(WORKSPACE / "validation-firmware/protocol/hwlink.fbs")
     snapshot = _read(ROOT / "src/hostcore/protocol/hwlink.fbs")
     assert snapshot == firmware
-    header = _read(WORKSPACE / "soccentric-stm32-validation-firmware/src/hwlink.h")
+    header = _read(WORKSPACE / "validation-firmware/src/hwlink.h")
     assert re.search(r"HWLINK_PROTOCOL_MAJOR\s+1U", header)
     assert re.search(r"HWLINK_MAX_FRAME\s+2048U", header)

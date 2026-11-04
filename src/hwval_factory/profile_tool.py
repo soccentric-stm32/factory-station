@@ -34,9 +34,9 @@ def _workspace_sources() -> dict[str, Path]:
     repo = Path(__file__).resolve().parents[2]
     workspace = repo.parent
     return {
-        "test": workspace / "soccentric-stm32-validation-firmware" / "build" / "hwval.elf",
-        "boot": workspace / "soccentric-stm32-bootloader" / "build" / "boot.hex",
-        "app": workspace / "soccentric-stm32-application" / "build" / "demo.img",
+        "test": workspace / "validation-firmware" / "build" / "hwval.elf",
+        "boot": workspace / "bootloader" / "build" / "boot.hex",
+        "app": workspace / "app-c-freertos" / "build" / "demo.img",
     }
 
 

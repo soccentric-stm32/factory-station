@@ -101,12 +101,12 @@ firmware development tasks (those belong to HWVAL Studio).
 
 | ID | Document |
 |---|---|
-| [GUI] | [soccentric-stm32-validation-gui/SRS.md](https://github.com/soccentric-stm32/soccentric-stm32-validation-gui/blob/HEAD/SRS.md) — SRS-GUI-F767, HWVAL Studio |
+| [GUI] | [validation-gui/SRS.md](https://github.com/soccentric-stm32/validation-gui/blob/HEAD/SRS.md) — SRS-GUI-F767, HWVAL Studio |
 | [LINK] | [GUI] Appendix A — HWLINK protocol (normative) |
-| [HWVAL] | [soccentric-stm32-validation-firmware/SRS.md](https://github.com/soccentric-stm32/soccentric-stm32-validation-firmware/blob/HEAD/SRS.md) — SRS-HWVAL-F767 |
-| [BOOT] | [soccentric-stm32-bootloader/SRS.md](https://github.com/soccentric-stm32/soccentric-stm32-bootloader/blob/HEAD/SRS.md) — SRS-BOOT-F767 |
-| [DEMO] | [soccentric-stm32-application/SRS.md](https://github.com/soccentric-stm32/soccentric-stm32-application/blob/HEAD/SRS.md) — SRS-DEMO-F767 (and the Rust and Zephyr variants) |
-| [HW] | [Hardware.md](https://github.com/soccentric-stm32/soccentric-stm32-validation-firmware/blob/HEAD/Hardware.md) |
+| [HWVAL] | [validation-firmware/SRS.md](https://github.com/soccentric-stm32/validation-firmware/blob/HEAD/SRS.md) — SRS-HWVAL-F767 |
+| [BOOT] | [bootloader/SRS.md](https://github.com/soccentric-stm32/bootloader/blob/HEAD/SRS.md) — SRS-BOOT-F767 |
+| [DEMO] | [app-c-freertos/SRS.md](https://github.com/soccentric-stm32/app-c-freertos/blob/HEAD/SRS.md) — SRS-DEMO-F767 (and the Rust and Zephyr variants) |
+| [HW] | [Hardware.md](https://github.com/soccentric-stm32/validation-firmware/blob/HEAD/Hardware.md) |
 | [RM0410] | ST, STM32F76xxx/F77xxx reference manual (option bytes, RDP, WRP, OTP) |
 | [OOCD] | OpenOCD user guide (`stm32f2x` flash driver, `adapter serial`) |
 | [ZPL] | Zebra Programming Language II reference |

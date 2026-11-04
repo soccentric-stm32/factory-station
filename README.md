@@ -1,4 +1,4 @@
-# soccentric-stm32-factory-provisioning
+# factory-station
 
 **HWVAL Factory**: the end-of-line test and provisioning station for
 STM32F767ZI boards. A cross-platform PySide6 desktop app (Windows and Linux on
@@ -184,13 +184,14 @@ option-byte, BOOT-no-app and connect-under-reset recovery, and
 
 | Repository | Role |
 |---|---|
-| [soccentric-stm32-validation-firmware](https://github.com/soccentric-stm32/soccentric-stm32-validation-firmware) | HWVAL hardware validation firmware (the EOL test image) |
-| [soccentric-stm32-bootloader](https://github.com/soccentric-stm32/soccentric-stm32-bootloader) | A/B bootloader (UART update, CRC32, trial boot and rollback) |
-| [soccentric-stm32-application](https://github.com/soccentric-stm32/soccentric-stm32-application) | FreeRTOS demo application in C |
-| [soccentric-stm32-rust-application](https://github.com/soccentric-stm32/soccentric-stm32-rust-application) | The same demo in Rust (Embassy) |
-| [soccentric-stm32-zephyr-application](https://github.com/soccentric-stm32/soccentric-stm32-zephyr-application) | The same demo on Zephyr RTOS |
-| [soccentric-stm32-validation-gui](https://github.com/soccentric-stm32/soccentric-stm32-validation-gui) | HWVAL Studio: engineering GUI for tests, updates and SWD flashing |
-| [soccentric-stm32-factory-provisioning](https://github.com/soccentric-stm32/soccentric-stm32-factory-provisioning) | HWVAL Factory: end-of-line test and provisioning (this repository) |
+| [validation-firmware](https://github.com/soccentric-stm32/validation-firmware) | HWVAL hardware validation firmware (the EOL test image) |
+| [bootloader](https://github.com/soccentric-stm32/bootloader) | A/B bootloader (UART update, CRC32, trial boot and rollback) |
+| [app-c-freertos](https://github.com/soccentric-stm32/app-c-freertos) | FreeRTOS demo application in C |
+| [app-rust-freertos](https://github.com/soccentric-stm32/app-rust-freertos) | The same demo in Rust (Embassy) |
+| [app-c-zephyr](https://github.com/soccentric-stm32/app-c-zephyr) | The same demo on Zephyr RTOS |
+| [app-rust-zephyr](https://github.com/soccentric-stm32/app-rust-zephyr) | The same demo in Rust on Zephyr RTOS |
+| [validation-gui](https://github.com/soccentric-stm32/validation-gui) | HWVAL Studio: engineering GUI for tests, updates and SWD flashing |
+| [factory-station](https://github.com/soccentric-stm32/factory-station) | HWVAL Factory: end-of-line test and provisioning (this repository) |
 
 ## License
 

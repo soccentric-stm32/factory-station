@@ -86,7 +86,7 @@ workspace. The simulator therefore proves nothing about real hardware.
 | M12 | Provisioning record consumer | Writes a record at `0x08104000` | No firmware reads it. The application uses the chip UID only and has no serial number, MAC or calibration source | `application/src/comms_task.c` |
 | M13 | Real-hardware defaults | GUI with no `--station` runs simulated | — | `src/hwval_factory/app.py:81` |
 
-HWVAL Studio (`soccentric-stm32-validation-gui`) already has a working
+HWVAL Studio (`validation-gui`) already has a working
 COBS/CRC/FlatBuffers stack (`protocol/link.py`, `protocol/codec.py`,
 `protocol/generated/`), an OpenOCD wrapper and a device client. Use these
 instead of rewriting them.

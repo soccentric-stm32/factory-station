@@ -19,7 +19,7 @@ cp README.md docs/*.md "$STAGE/usr/share/doc/hwval-factory/"
 if command -v fpm >/dev/null 2>&1; then
   fpm -s dir -t deb -n hwval-factory -v "$VERSION" -C "$STAGE" \
       --description "HWVAL Factory end-of-line test and provisioning" \
-      --url "https://github.com/soccentric-stm32/soccentric-stm32-factory-provisioning" \
+      --url "https://github.com/soccentric-stm32/factory-station" \
       --maintainer "Sandesh Ghimire <sandesh@soccentric.com>" \
       --depends "openocd (>= 0.12)" \
       .
@@ -34,7 +34,7 @@ Priority: optional
 Architecture: $ARCH
 Depends: openocd (>= 0.12)
 Maintainer: Sandesh Ghimire <sandesh@soccentric.com>
-Homepage: https://github.com/soccentric-stm32/soccentric-stm32-factory-provisioning
+Homepage: https://github.com/soccentric-stm32/factory-station
 Description: HWVAL Factory end-of-line test and provisioning
  STM32F767ZI end-of-line test and provisioning station.
 EOF
