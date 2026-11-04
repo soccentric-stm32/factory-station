@@ -105,10 +105,18 @@ consumed at the moment the provisioning record passes read-back; before that
 it is returned to the pool. Abort is checked at every step boundary and during
 scan waits.
 
-Production programming writes BOOT, the app payload into slot A, erases the
-metadata sector once, then appends the 256-byte IBWH header at `+0x000` and the
-`VERIFIED`, `ACTIVATED` and `CONFIRMED` records at `+0x100`, `+0x120` and
-`+0x140` (Appendix B). It reads back the app CRC32 and every record.
+Production programming writes BOOT, then either:
+
+* `app_load: swd` — write the app payload into slot A, erase the metadata
+  sector once, append the 256-byte IBWH header at `+0x000` and the
+  `VERIFIED`, `ACTIVATED` and `CONFIRMED` records at `+0x100`, `+0x120` and
+  `+0x140`, and read every record back; or
+* `app_load: boot` — reset into BOOT update mode and send
+  `UpdateBegin/Data/End/Activate` over HWLINK. BOOT erases the slot, checks the
+  image CRC and writes its own metadata.
+
+Both profiles in this repository default to `swd`; set `app_load: boot` in a
+profile to exercise the BOOT path.
 
 ## Provisioning record
 
@@ -128,8 +136,10 @@ station file unless `--simulate` is given:
 ```
 hwval-factory --cli --simulate --profile examples/profile-sc767-demo --fixture F1 \
   --pcb-serial PCB-0001 --json
+hwval-factory --init-station station.local.yaml
 hwval-factory --detect
 hwval-factory --station examples/station.local.yaml --probe --fixture F1
+hwval-factory --cli --simulate --scenario examples/scenario-yield-95.yaml ...
 ```
 
 Exit codes: `0` PASS, `1` FAIL/ABORTED/INCOMPLETE, `2` station error. Use

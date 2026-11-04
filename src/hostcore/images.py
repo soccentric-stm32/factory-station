@@ -123,6 +123,26 @@ class FirmwareImage:
         records.append(make_metadata_record(META_CONFIRMED_MAGIC, 0))
         return records
 
+    def header_dict(self) -> dict[str, int | str | bytes]:
+        """Return the IBWH header fields for HWLINK UpdateBegin."""
+        if not self.header:
+            raise ImageError("image has no IBWH header")
+        return {
+            "magic": IMAGE_MAGIC,
+            "header_version": int(self.header_format or IMAGE_HEADER_VERSION),
+            "header_size": IMAGE_HEADER_SIZE,
+            "image_type": int(self.image_type or IMAGE_TYPE_APPLICATION),
+            "version": self.version,
+            "image_size": len(self.data),
+            "image_crc32": self.crc32,
+            "load_address": self.load_address,
+            "entry_address": self.entry,
+            "build_timestamp": self.build_timestamp,
+            "git_commit": bytes.fromhex(self.git_commit) if self.git_commit else b"",
+            "name": self.name,
+            "header_crc32": self.header_crc32,
+        }
+
     def metadata_offsets(self) -> list[int]:
         return [
             0,

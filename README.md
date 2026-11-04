@@ -74,6 +74,9 @@ hwval-factory-ui --simulate --fixtures 4
   size, type, load/entry, header CRC, image CRC, SP/reset vector), Intel HEX,
   ELF and raw BIN support, and the Appendix B `VERIFIED`/`ACTIVATED`/
   `CONFIRMED` records at their fixed offsets.
+* **Two application load paths** — `app_load: swd` writes the payload and
+  metadata over SWD; `app_load: boot` uploads the IBWH image over HWLINK and
+  lets BOOT erase, verify and activate it (`UpdateBegin/Data/End/Activate`).
 * **Provisioning record** — `PRV1` header/TLV format with CRC32, chip
   UID binding, mandatory identity fields, MAC, calibration, customer/order and
   custom key/value fields; read-back is compared byte for byte.
@@ -123,9 +126,14 @@ packaging/               PyInstaller + .deb/AppImage/MSI packaging
 hwval-factory --cli --simulate --profile examples/profile-sc767-demo --fixture F1 \
   --pcb-serial PCB-0001 --operator alice --json
 
-# hardware bring-up and discovery
+# first-run station file, hardware discovery and bring-up
+hwval-factory --init-station station.local.yaml
 hwval-factory --detect
 hwval-factory --station examples/station.local.yaml --probe --fixture F1
+
+# simulator scenario and an imported MAC pool
+hwval-factory --cli --simulate --scenario examples/scenario-yield-95.yaml ...
+hwval-factory --station station.local.yaml --import-macs macs.csv --work-order WO-1
 
 # station utilities
 hwval-factory --list-profiles --profiles-dir examples
@@ -137,7 +145,8 @@ hwval-factory --reprint 42 --operator supervisor
 
 ## Real hardware checklist
 
-1. Install OpenOCD ≥ 0.12 and the ST-LINK udev rules (Linux).
+1. Install OpenOCD ≥ 0.12 and the ST-LINK udev rules (Linux:
+   `packaging/udev/99-stlink.rules`; see `packaging/README.md`).
 2. Copy `examples/station.local.yaml` or `examples/station.real.example.yaml`
    outside the repository. `probe_serial: auto` is filled from the connected
    ST-LINKs; `hwval-factory --detect` prints probes and VCP ports.

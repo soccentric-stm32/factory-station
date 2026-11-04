@@ -12,12 +12,13 @@ import hashlib
 import random
 import re
 import struct
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from hostcore import layout
-from hostcore.images import ImageError, parse_image, parse_metadata_record
+from hostcore.images import ImageError, make_metadata_record, parse_image, parse_metadata_record
 from hostcore.openocd import OpenOcdError, OptionBytes
 from hostcore.protocol import codec
 from hostcore.protocol.generated.hwlink.BootOutcome import BootOutcome
@@ -551,6 +552,48 @@ class FactorySimulatedDevice(BaseSimulatedDevice):
         }
         return self._reply(codec.build_device_info(info), seq)
 
+    def _on_15(self, table: Any, seq: int) -> list[bytes]:  # UpdateEnd
+        """Program the uploaded image into the simulated slot A flash."""
+        if not self.update.active:
+            return super()._on_15(table, seq)
+        header = self.update.header
+        data = bytes(self.update.data)
+
+        if len(data) != int(header.get("image_size", 0)) or (
+            zlib.crc32(data) & 0xFFFFFFFF
+        ) != int(header.get("image_crc32", 0)):
+            return super()._on_15(table, seq)
+        self.chip.erase_address(layout.SLOT_A_BASE, max(1, len(data)))
+        self.chip.write(layout.SLOT_A_BASE, data)
+        self.chip.erase_address(layout.META_A_BASE, layout.META_SIZE)
+        self.chip.write(layout.META_A_BASE, _ibwh_header_bytes(header))
+        self.chip.write(
+            layout.META_A_BASE + layout.META_VERIFIED_OFFSET,
+            make_metadata_record(layout.META_VERIFIED_MAGIC, int(header.get("image_crc32", 0))),
+        )
+        self.chip.app_image_name = str(header.get("name", "")) or "stm32-application"
+        self.chip.app_image_version = int(header.get("version", 0))
+        return super()._on_15(table, seq)
+
+    def _on_17(self, table: Any, seq: int) -> list[bytes]:  # Activate
+        result = super()._on_17(table, seq)
+        if self.chip.boot_metadata()["present"]:
+            self.chip.write(
+                layout.META_A_BASE + layout.META_ACTIVATED_OFFSET,
+                make_metadata_record(layout.META_ACTIVATED_MAGIC, 1),
+            )
+            self.chip.write(
+                layout.META_A_BASE + layout.META_CONFIRMED_OFFSET,
+                make_metadata_record(layout.META_CONFIRMED_MAGIC, 0),
+            )
+            self.chip.mode = "app"
+            self.set_role(
+                "APP",
+                self.chip.app_image_name or "stm32-application",
+                self.chip.app_image_version,
+            )
+        return result
+
     def _boot_payload(self) -> dict[str, Any]:
         boot = self.chip.boot_metadata()
         active = Slot.A if boot["valid"] else Slot.UNKNOWN
@@ -664,6 +707,31 @@ class FactorySimulatedDevice(BaseSimulatedDevice):
                 "valid": True,
             }
         return result
+
+
+def _ibwh_header_bytes(header: dict[str, Any]) -> bytes:
+    raw = bytearray(layout.IMAGE_HEADER_SIZE)
+    struct.pack_into(
+        "<IHHIIIIIII",
+        raw,
+        0,
+        int(header.get("magic", layout.IMAGE_MAGIC)),
+        int(header.get("header_version", layout.IMAGE_HEADER_VERSION)),
+        int(header.get("header_size", layout.IMAGE_HEADER_SIZE)),
+        int(header.get("image_type", layout.IMAGE_TYPE_APPLICATION)),
+        int(header.get("version", 0)),
+        int(header.get("image_size", 0)),
+        int(header.get("image_crc32", 0)),
+        int(header.get("load_address", layout.APP_LOAD_ADDR)),
+        int(header.get("entry_address", 0)),
+        int(header.get("build_timestamp", 0)),
+    )
+    commit = bytes(header.get("git_commit") or b"")[:20].ljust(20, b"\0")
+    raw[36:56] = commit
+    name = str(header.get("name", "")).encode("ascii", "replace")[:32].ljust(32, b"\0")
+    raw[56:88] = name
+    struct.pack_into("<I", raw, 252, zlib.crc32(raw[:252]) & 0xFFFFFFFF)
+    return bytes(raw)
 
 
 def _uid_word_hex(uid: bytes) -> str:

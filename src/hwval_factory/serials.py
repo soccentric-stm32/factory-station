@@ -162,6 +162,10 @@ def mac_range(profile: ProductProfile, wo: WorkOrder) -> list[str]:
     spec = profile.identity
     if not spec.mac_enabled:
         return []
+    if spec.mac_source == "import":
+        # The pool is loaded from a CSV with `--import-macs`; the work order
+        # must already own those rows.
+        return []
     prefix, mask, capacity = parse_oui_block(spec.oui_block)
     if wo.mac_start:
         first = parse_mac(wo.mac_start)

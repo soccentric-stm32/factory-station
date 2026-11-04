@@ -165,6 +165,11 @@ class MesService:
         )
         if self.config.token:
             request.add_header("Authorization", f"Bearer {self.config.token}")
+        run = payload.get("run") or {}
+        run_id = run.get("id") if isinstance(run, dict) else None
+        if run_id is not None:
+            # H-02: the receiver can de-duplicate a retry after a lost reply.
+            request.add_header("Idempotency-Key", f"hwval-run-{run_id}")
         context = (
             ssl.create_default_context()
             if self.config.endpoint.lower().startswith("https://")

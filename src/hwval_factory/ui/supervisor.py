@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -510,20 +510,57 @@ class OperatorPromptDialog(QDialog):
         self.text = QLabel(str(payload.get("text", "Operator action required")))
         self.text.setWordWrap(True)
         self.text.setStyleSheet("font-size: 22px;")
-        test_id = QLabel(f"Test: {payload.get('test_id', '—')}")
+        kind = str(payload.get("kind_name", "YES_NO")).upper()
+        test_id = QLabel(f"Test: {payload.get('test_id', '—')}   Kind: {kind.replace('_', ' ')}")
         test_id.setObjectName("Muted")
         layout.addWidget(title)
         layout.addWidget(self.text)
         layout.addWidget(test_id)
-        choices = payload.get("choices") or ["OK"]
+        if kind == "DESTRUCTIVE":
+            warning = QLabel("Destructive test: confirm only after the fixture is safe.")
+            warning.setStyleSheet(f"color: {COLORS['warn']}; font-weight: 600;")
+            warning.setWordWrap(True)
+            layout.addWidget(warning)
+        self.timeout_label = QLabel("")
+        self.timeout_label.setObjectName("Muted")
+        layout.addWidget(self.timeout_label)
+        self.line = None
+        answers = (
+            payload.get("answers_list")
+            or payload.get("choices")
+            or [part.strip() for part in str(payload.get("answers", "")).split(",") if part.strip()]
+            or ["OK"]
+        )
+        if kind == "LINE":
+            self.line = QLineEdit()
+            self.line.setPlaceholderText("enter the value and press OK")
+            self.line.returnPressed.connect(lambda: self._choose(self.line.text()))
+            layout.addWidget(self.line)
         buttons = QHBoxLayout()
-        for choice in choices:
-            button = QPushButton(str(choice))
+        for choice in answers:
+            button = QPushButton(str(choice).title())
             button.setMinimumHeight(52)
-            button.setObjectName("Primary" if str(choice) == "OK" else "")
+            button.setObjectName("Primary" if str(choice).lower() in ("ok", "yes") else "")
             button.clicked.connect(lambda _checked=False, value=str(choice): self._choose(value))
             buttons.addWidget(button)
         layout.addLayout(buttons)
+        self.timeout_s = int(payload.get("timeout_s") or 0)
+        self._remaining = self.timeout_s
+        self._timer: QTimer | None = None
+        if self.timeout_s > 0:
+            self._timer = QTimer(self)
+            self._timer.timeout.connect(self._tick)
+            self._timer.start(1000)
+            self._tick()
+
+    def _tick(self) -> None:
+        if self._remaining <= 0:
+            if self._timer is not None:
+                self._timer.stop()
+            self._choose("TIMEOUT")
+            return
+        self.timeout_label.setText(f"Answer within {self._remaining} s")
+        self._remaining -= 1
 
     def _choose(self, value: str) -> None:
         self.answer = value

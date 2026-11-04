@@ -29,6 +29,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--kiosk", action="store_true", help="start in kiosk mode")
     parser.add_argument("--fail-test", action="append", default=[])
     parser.add_argument("--fault-rate", type=float, default=0.0)
+    parser.add_argument("--scenario", type=Path, help="simulator scenario YAML")
     parser.add_argument("--auto-login", default="", help="username:pin (development only)")
     parser.add_argument("--version", action="version", version=__version__)
     return parser
@@ -101,13 +102,17 @@ def main(argv: list[str] | None = None) -> int:
             config.require_profile_signature,
             config.profile_public_key or None,
         )
+        from hwval_factory.cli import _simulation_inputs
+
+        fail_tests, fault_rate, prompt_tests = _simulation_inputs(args)
         station = Station(
             config,
             db,
             profile,
             simulation=simulation,
-            fail_tests=set(args.fail_test),
-            fault_rate=args.fault_rate,
+            fail_tests=fail_tests,
+            fault_rate=fault_rate,
+            prompt_tests=prompt_tests,
         )
     except (ConfigError, ProfileError, AuthError, OSError) as exc:
         QMessageBox.critical(None, APP_NAME, str(exc))

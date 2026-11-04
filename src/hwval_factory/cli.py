@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from hwval_factory import APP_NAME, __version__
 from hwval_factory.auth import AuthService
 from hwval_factory.config import (
@@ -58,9 +60,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "--fail-test", action="append", default=[], help="simulate a failing test ID"
     )
     parser.add_argument("--fault-rate", type=float, default=0.0, help="simulated USB fault rate")
+    parser.add_argument(
+        "--scenario", type=Path, help="simulator scenario YAML (fail_tests, fault_rate, prompts)"
+    )
     parser.add_argument("--list-profiles", action="store_true")
     parser.add_argument("--list-fixtures", action="store_true")
     parser.add_argument("--detect", action="store_true", help="list ST-LINK probes and VCP ports")
+    parser.add_argument(
+        "--init-station", type=Path, metavar="PATH", help="write a first-run station.yaml"
+    )
+    parser.add_argument(
+        "--import-macs", type=Path, metavar="CSV", help="load a MAC pool CSV for a work order"
+    )
     parser.add_argument(
         "--probe", action="store_true", help="hardware bring-up: SWD + VCP checks for one fixture"
     )
@@ -163,6 +174,28 @@ def _print_result(db: Database, run_id: int, fixture: str) -> None:
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
 
 
+def _simulation_inputs(args: argparse.Namespace) -> tuple[set[str], float, set[str]]:
+    fail_tests = set(args.fail_test)
+    prompt_tests: set[str] = set()
+    fault_rate = args.fault_rate
+    scenario = getattr(args, "scenario", None)
+    if scenario is not None:
+        if not scenario.is_file():
+            raise ConfigError(f"scenario not found: {scenario}")
+        raw = yaml.safe_load(scenario.read_text(encoding="utf-8")) or {}
+        if not isinstance(raw, dict):
+            raise ConfigError("scenario must be a mapping")
+        sim_raw = raw.get("simulation")
+        sim: dict[str, Any] = sim_raw if isinstance(sim_raw, dict) else raw
+        for item in sim.get("fail_tests") or []:
+            fail_tests.add(str(item))
+        for item in sim.get("prompt_tests") or []:
+            prompt_tests.add(str(item))
+        if sim.get("fault_rate") is not None:
+            fault_rate = float(sim["fault_rate"])
+    return fail_tests, fault_rate, prompt_tests
+
+
 def _run_one(args: argparse.Namespace) -> int:
     config, simulation = _load_config(args)
     db = Database(config.database)
@@ -173,13 +206,15 @@ def _run_one(args: argparse.Namespace) -> int:
     fixture = args.fixture or next(f.name for f in config.fixtures if f.enabled)
     if not any(f.name == fixture for f in config.fixtures):
         raise StationError(f"fixture {fixture!r} is not configured")
+    fail_tests, fault_rate, prompt_tests = _simulation_inputs(args)
     station = Station(
         config,
         db,
         profile,
         simulation=simulation,
-        fail_tests=set(args.fail_test),
-        fault_rate=args.fault_rate,
+        fail_tests=fail_tests,
+        fault_rate=fault_rate,
+        prompt_tests=prompt_tests,
     )
     try:
         if args.work_order:
@@ -324,6 +359,93 @@ def _run_utility(args: argparse.Namespace) -> int:
     db = Database(config.database)
     db.initialize(mark_interrupted=False)
     try:
+        if args.import_macs is not None:
+            if not args.work_order:
+                print("station error: --import-macs requires --work-order", file=sys.stderr)
+                return 2
+            from hwval_factory.serials import format_mac, parse_mac
+
+            macs: list[str] = []
+            for line in args.import_macs.read_text(encoding="utf-8").splitlines():
+                text = line.split("#", 1)[0].strip()
+                if not text:
+                    continue
+                value = text.replace(",", " ").split()[0]
+                if value.lower() in ("mac", "address"):
+                    continue
+                try:
+                    number = parse_mac(value)
+                except Exception as exc:
+                    print(f"station error: {line!r}: {exc}", file=sys.stderr)
+                    return 2
+                if number & 0x010000000000:
+                    print(f"station error: {value} is multicast", file=sys.stderr)
+                    return 2
+                macs.append(format_mac(number))
+            if len(macs) != len(set(macs)):
+                print("station error: MAC CSV contains duplicates", file=sys.stderr)
+                return 2
+            inserted = db.add_macs(args.work_order, macs)
+            skipped = len(macs) - inserted
+            print(
+                f"{inserted} MAC addresses loaded for {args.work_order}"
+                + (f" ({skipped} already present)" if skipped else "")
+            )
+            return 0
+        if args.init_station:
+            probes = detect_stlink_serials()
+            fixture_rows: list[dict[str, Any]] = []
+            for index in range(max(1, min(8, args.fixtures))):
+                fixture_rows.append(
+                    {
+                        "name": f"F{index + 1}",
+                        "probe_serial": probes[index] if index < len(probes) else "auto",
+                        "serial_port": "",
+                        "telnet_port": 4444 + index,
+                        "position": index,
+                        "power": {"driver": "none"},
+                    }
+                )
+            data = {
+                "station": {
+                    "id": "STN-01",
+                    "name": "HWVAL Factory station",
+                    "line": "L1",
+                },
+                "simulation": False,
+                "profiles_dir": "./profiles",
+                "database": "./station-data/hwval-factory.sqlite",
+                "labels_dir": "./station-data/labels",
+                "certificates_dir": "./station-data/certificates",
+                "fixtures": fixture_rows,
+                "printer": {
+                    "enabled": False,
+                    "output_dir": "./station-data/labels",
+                    "dpi": 203,
+                },
+                "mes": {"enabled": False},
+                "openocd": {
+                    "binary": "openocd",
+                    "interface_cfg": "interface/stlink.cfg",
+                    "target_cfg": "target/stm32f7x.cfg",
+                    "telnet_base_port": 4444,
+                },
+                "security": {
+                    "session_timeout_minutes": 30,
+                    "retest_after_failures": 2,
+                    "self_test_interval_hours": 24,
+                    "maintenance_count": 10000,
+                    "require_profile_signature": False,
+                },
+                "kiosk": False,
+            }
+            args.init_station.parent.mkdir(parents=True, exist_ok=True)
+            args.init_station.write_text(
+                yaml.safe_dump(data, sort_keys=False), encoding="utf-8"
+            )
+            print(args.init_station)
+            print(f"fixtures: {len(fixture_rows)}, detected probes: {len(probes)}")
+            return 0
         if args.list_profiles:
             profiles = list_profiles(
                 config.profiles_dir,
@@ -416,7 +538,9 @@ def _run_utility(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     utility = (
-        args.list_profiles
+        args.import_macs is not None
+        or args.init_station is not None
+        or args.list_profiles
         or args.list_fixtures
         or args.detect
         or args.probe

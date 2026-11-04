@@ -24,17 +24,18 @@ The factory-side P0 contract work is implemented and covered by `make test`:
 | B-09 released profile from real BOOT/HWVAL/application builds | done (`profiles/sc767-1.0.0`) |
 | B-10/B-14 boot check plus identity readback | done |
 | B-11/B-12 `--detect`, `station.local.yaml`, `--probe`, GUI bring-up | done |
+| B-13 application load through BOOT over VCP (`app_load: boot`) | done |
 | C-01…C-03 real protocol simulator, flash layout and BOOT metadata | done |
 | D-01 identity contract (`PRV1`, CRC, UID binding) | done; magic corrected from `1VRP` |
 | E-01/E-02 protection order, post-protection boot check, RDP 2 blocked | done |
 | J-01/J-02 pytest suite and cross-repo contract checks | done |
+| J-03 pytest-qt UI smoke, scenario CLI and MES idempotency | done |
 | J-05 ruff and mypy gates | done |
 
 Still requiring the firmware repositories or hardware:
 
 * A-01, A-03, A-05, A-06: bootloader `boot_layout.h` identity area, C/Rust/Zephyr
   identity readers, `GetIdentity` HWLINK message and MAC use.
-* B-13 loading the app through BOOT over VCP (`app_load: swd | boot`).
 * J-04 nightly hardware-in-the-loop run.
 * The bench confirmation in OPEN-B05, and all real-instrument tests in F/G.
 

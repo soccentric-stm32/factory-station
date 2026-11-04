@@ -439,6 +439,74 @@ class HwLinkSession:
         with contextlib.suppress(HwLinkError):
             self.request(codec.build_abort(), response_types={Body.Ack}, timeout=1.0)
 
+    def update_image(
+        self,
+        image: Any,
+        *,
+        chunk_size: int = 1024,
+        activate: bool = True,
+        progress: Callable[[int, int], None] | None = None,
+        abort_event: threading.Event | None = None,
+    ) -> dict[str, Any]:
+        """Upload an IBWH image to BOOT over HWLINK (B-13)."""
+        header = image.header_dict()
+        body = bytes(image.data)
+        self.request(
+            codec.build_update_begin(header),
+            response_types={Body.Ack},
+            timeout=5.0,
+        )
+        offset = 0
+        while offset < len(body):
+            if abort_event is not None and abort_event.is_set():
+                with contextlib.suppress(HwLinkError):
+                    self.abort_update()
+                raise HwLinkError("update cancelled by operator")
+            chunk = body[offset : offset + chunk_size]
+            _, table = self.request(
+                codec.build_update_data(offset, chunk),
+                response_types={Body.Ack, Body.Nak},
+                timeout=10.0,
+            )
+            ack = codec.parse_ack(table)
+            next_offset = int(ack.get("next_offset", 0))
+            if next_offset <= offset:
+                raise HwLinkError(f"BOOT did not advance past update offset {offset}")
+            offset = next_offset
+            if progress is not None:
+                progress(offset, len(body))
+            self._drain_progress()
+        _, table = self.request(
+            codec.build_update_end(),
+            response_types={Body.UpdateResult},
+            timeout=30.0,
+        )
+        result = codec.parse_update_result(table)
+        if not bool(result.get("success")):
+            raise HwLinkError(
+                f"BOOT update failed: {result.get('error_name')}: {result.get('detail')}"
+            )
+        if activate:
+            self.request(codec.build_activate(), response_types={Body.Ack}, timeout=5.0)
+        return result
+
+    def abort_update(self) -> None:
+        with contextlib.suppress(HwLinkError):
+            self.request(codec.build_update_abort(), response_types={Body.Ack}, timeout=1.0)
+
+    def _drain_progress(self) -> None:
+        while True:
+            try:
+                event = self._link.events.get_nowait()
+            except queue.Empty:
+                return
+            if event.body_type == Body.Progress:
+                progress = codec.parse_progress(event.table)
+                if self.log_handler:
+                    self.log_handler(
+                        f"{progress.get('operation')}: {progress.get('done')}/{progress.get('total')}"
+                    )
+
     # -- DEMO / BOOT ---------------------------------------------------
     def status(self) -> dict[str, Any]:
         _, table = self.request(codec.build_get_status(), response_types={Body.Status})

@@ -1,0 +1,9 @@
+# Simulator scenario for demos and dashboard testing.
+# Run: hwval-factory --cli --simulate --scenario examples/scenario-yield-95.yaml ...
+simulation:
+  fault_rate: 0.0
+  fail_tests:
+    - ADC.006
+  prompt_tests:
+    - BTN.002
+  yield_percent: 95

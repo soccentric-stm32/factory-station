@@ -550,7 +550,8 @@ class StationWindow(QMainWindow):
         holder: dict[str, str] = {"answer": "OK"}
         event = threading.Event()
         self._prompts.put((fixture, payload, holder, event))
-        if not event.wait(timeout=300):
+        wait_s = max(30.0, float(payload.get("timeout_s") or 0) + 10.0)
+        if not event.wait(timeout=wait_s):
             return "TIMEOUT"
         return holder.get("answer", "OK")
 

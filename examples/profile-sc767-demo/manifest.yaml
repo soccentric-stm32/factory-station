@@ -109,3 +109,4 @@ steps:
     program: 1
     boot_check: 2
     label: 1
+app_load: swd

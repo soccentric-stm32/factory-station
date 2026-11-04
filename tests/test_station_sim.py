@@ -51,3 +51,17 @@ def test_simulator_failure_is_recorded(tmp_path: Path) -> None:
     finally:
         station.close()
         db.close()
+
+
+def test_boot_vcp_app_load_path(tmp_path: Path) -> None:
+    station, db, fixture = _station(tmp_path)
+    assert station.profile is not None
+    station.profile.manifest["app_load"] = "boot"
+    try:
+        run_id = station.start_run(fixture, pcb_serial="PCB-E2E-BOOT", operator="pytest")
+        assert station.wait(fixture, timeout=60) == "PASS"
+        steps = {row["name"]: row for row in db.steps(run_id)}
+        assert "loaded over VCP" in str(steps["Program production"]["detail"])
+    finally:
+        station.close()
+        db.close()

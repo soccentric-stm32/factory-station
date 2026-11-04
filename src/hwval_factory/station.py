@@ -1246,6 +1246,64 @@ class Station:
         app = profile.app_image
         if app.image is None:
             raise StepFailure("application image was not parsed")
+        app_load = self._app_load(profile)
+        metadata_base = self._metadata_address(profile)
+        if app_load == "boot":
+            # B-13: BOOT is already flashed and the board was mass-erased, so
+            # it stays in update mode.  Upload the IBWH image and let BOOT
+            # erase the slot, verify the CRC and write its own metadata.
+            if rt.bank is not None:
+                rt.bank.device.set_role("BOOT", "BOOT", 0)
+            backend.reset(halt=False)
+            self._close_session(rt)
+            session = self._open_session(ctx.fixture, rt)
+            hello = self._wait_hello(
+                session,
+                timeout=self._boot_timeout(profile),
+                abort_event=rt.abort,
+                expected_role="BOOTLOADER",
+            )
+            if str(hello.get("role", "")).upper() not in ("BOOTLOADER", "BOOT"):
+                raise StepFailure("BOOT did not enter update mode for the VCP load")
+            try:
+                result = session.update_image(
+                    app.image,
+                    abort_event=rt.abort,
+                    progress=lambda done, total: self._update_status(
+                        ctx.fixture, message=f"BOOT update {done}/{total}"
+                    ),
+                )
+            finally:
+                self._close_session(rt)
+            if not bool(result.get("success")):
+                raise StepFailure(f"BOOT update failed: {result}")
+            if rt.bank is not None:
+                rt.bank.prepare_app_image(
+                    app.sha256,
+                    app.image.name or app_path.stem,
+                    app.image.version,
+                    app_path,
+                )
+            ctx.metadata["app_load"] = "boot"
+            ctx.metadata["boot_update"] = {
+                "crc32": int(result.get("image_crc32", 0)),
+                "detail": str(result.get("detail", "")),
+            }
+            ctx.metadata["boot_metadata"] = {
+                "address": metadata_base,
+                "verified_crc32": app.image.crc32,
+                "sequence": 1,
+                "writer": "BOOT",
+            }
+            ctx.image_versions["boot"] = boot_image.version_string() if boot_image else ""
+            ctx.image_versions["app"] = app.image.version_string()
+            ctx.metadata["safe_state"] = "app_programmed"
+            return StepOutcome(
+                detail=(
+                    f"BOOT + app v{app.image.version_string()} loaded over VCP, "
+                    f"CRC32=0x{app.image.crc32:08X}"
+                )
+            )
         address = self._slot_a_address(profile)
         self._program_payload(backend, app.image, address)
         readback = backend.read_memory(address, len(app.image.data))
@@ -1255,7 +1313,6 @@ class Station:
 
         if zlib.crc32(readback) & 0xFFFFFFFF != app.image.crc32:
             raise StepFailure("application CRC32 mismatch after programming")
-        metadata_base = self._metadata_address(profile)
         records = app.image.to_metadata_records(slot=0, sequence=1)
         offsets = app.image.metadata_offsets()
         # Appendix B: erase the metadata sector once, then program the header
@@ -1277,6 +1334,7 @@ class Station:
                 app.image.version,
                 app_path,
             )
+        ctx.metadata["app_load"] = "swd"
         rt.app_image = app.image
         ctx.image_versions["boot"] = boot_image.version_string() if boot_image else ""
         ctx.image_versions["app"] = app.image.version_string()
@@ -1284,6 +1342,7 @@ class Station:
             "address": metadata_base,
             "verified_crc32": app.image.crc32,
             "sequence": 1,
+            "writer": "factory",
         }
         ctx.metadata["safe_state"] = "app_programmed"
         backend.reset(halt=True)
@@ -1726,7 +1785,8 @@ class Station:
     def _prompt(self, fixture: str, payload: dict[str, Any]) -> str:
         self._log(fixture, f"operator prompt: {payload.get('text', '')}")
         if self.prompt_handler is None:
-            answer = str((payload.get("choices") or ["OK"])[0])
+            answers = payload.get("answers_list") or payload.get("choices") or ["OK"]
+            answer = str(answers[0])
         else:
             answer = str(self.prompt_handler(fixture, payload))
         ctx = self.worker_ctx(fixture)
@@ -1763,6 +1823,12 @@ class Station:
         finally:
             with contextlib.suppress(OSError):
                 name.unlink()
+
+    def _app_load(self, profile: ProductProfile) -> str:
+        value = str(profile.manifest.get("app_load") or "swd").strip().lower()
+        if value not in ("swd", "boot"):
+            raise StepFailure(f"unsupported app_load {value!r}; use 'swd' or 'boot'")
+        return value
 
     def _slot_a_address(self, profile: ProductProfile) -> int:
         raw = profile.manifest.get("layout") or {}

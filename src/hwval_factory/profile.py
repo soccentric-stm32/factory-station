@@ -156,6 +156,7 @@ def safe_eval(expression: str, value: float) -> float:
 class IdentitySpec:
     serial_format: str = "SC767-{yyww}-{counter:06}-{luhn}"
     mac_enabled: bool = False
+    mac_source: str = "oui"       # oui | import
     oui_block: str = ""
     allow_local: bool = True
     mac_start: int = 0
@@ -457,9 +458,13 @@ def _parse_identity(raw: dict[str, Any]) -> IdentitySpec:
     mac = identity.get("mac") or {}
     if not isinstance(mac, dict):
         raise ProfileError("identity.mac must be a mapping")
+    source = str(mac.get("source") or "oui").strip().lower()
+    if source not in ("oui", "import"):
+        raise ProfileError(f"unsupported identity.mac.source {source!r}")
     return IdentitySpec(
         serial_format=serial_format,
         mac_enabled=bool(mac.get("enabled", False)),
+        mac_source=source,
         oui_block=str(mac.get("oui_block") or ""),
         allow_local=bool(mac.get("allow_local", True)),
         mac_start=int(str(mac.get("start") or "0"), 0) if mac.get("start") else 0,
@@ -795,6 +800,7 @@ def manifest_for_directory(
                 "swapped_address": f"0x{layout.IDENTITY_BASE_SWAPPED:08X}",
             },
         ),
+        "app_load": sections.pop("app_load", "swd"),
         "boot_check": sections.pop("boot_check", {"role": "APP", "timeout_s": 15}),
         "hello_timeout_s": sections.pop("hello_timeout_s", 10),
         "test_plan": sections.pop("test_plan", {"tests": [], "allow_operator": True}),
