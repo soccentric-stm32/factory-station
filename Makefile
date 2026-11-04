@@ -14,6 +14,7 @@ STATION ?= examples/station.simulator.yaml
 PROFILE ?= examples/profile-sc767-demo
 FIXTURE ?= F1
 WORK_ORDER ?=
+RUN_ARGS ?=
 SMOKE_SERIAL ?= PCB-MAKE-$(shell $(PYTHON) -c "import uuid; print(uuid.uuid4().hex[:12])")
 
 ifeq ($(OS),Windows_NT)
@@ -58,7 +59,7 @@ $(INSTALL_STAMP): pyproject.toml requirements.txt | $(PY)
 	$(PIP) install -e .
 	@touch $(INSTALL_STAMP)
 
-install: $(INSTALL_STAMP) ## Editable install into $(VENV)
+install: $(INSTALL_STAMP) ## Editable install into the virtualenv
 
 $(DEV_STAMP): pyproject.toml requirements.txt | $(PY)
 	$(PIP) install -e ".[dev]"
@@ -73,7 +74,7 @@ $(PACKAGING_STAMP): pyproject.toml requirements.txt | $(PY)
 packaging-deps: $(PACKAGING_STAMP) ## Install PyInstaller
 
 run: install ## Launch the station UI (simulator by default)
-	$(PY) -m hwval_factory.app --station $(STATION)
+	$(PY) -m hwval_factory.app --station $(STATION) $(RUN_ARGS)
 
 demo: install ## Run one simulated unit headless
 	$(PY) -m hwval_factory --cli \
@@ -116,10 +117,18 @@ build: packaging-deps ## Build the PyInstaller bundle
 	$(PY) -m PyInstaller --clean --noconfirm packaging/hwval-factory.spec
 
 package-linux: dev ## Build the Linux .deb/AppImage via packaging/build-linux.sh
-	PATH="$(CURDIR)/$(VENV_BIN):$$PATH" bash packaging/build-linux.sh
+	@if [ "$(OS)" = "Windows_NT" ]; then \
+		echo "package-linux: run this target on Linux or macOS"; \
+	else \
+		PATH="$(CURDIR)/$(VENV_BIN):$$PATH" bash packaging/build-linux.sh; \
+	fi
 
 package-windows: dev ## Build the Windows MSI on Windows
-	powershell -ExecutionPolicy Bypass -File packaging/build-windows.ps1
+	@if [ "$(OS)" != "Windows_NT" ]; then \
+		echo "package-windows: run this target on Windows"; \
+	else \
+		powershell -ExecutionPolicy Bypass -File packaging/build-windows.ps1; \
+	fi
 
 version: ## Print the application version
 	$(PYTHON) -c "import sys; sys.path.insert(0, 'src'); from hwval_factory import __version__; print(__version__)"

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-ROOT = Path(SPECPATH).parent.parent
+ROOT = Path(SPECPATH).parent
 datas = [
     (str(ROOT / "examples" / "profile-sc767-demo"), "examples/profile-sc767-demo"),
     (str(ROOT / "docs"), "docs"),

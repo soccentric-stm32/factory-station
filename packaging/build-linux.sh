@@ -23,8 +23,25 @@ if command -v fpm >/dev/null 2>&1; then
       --maintainer "Sandesh Ghimire <sandesh@soccentric.com>" \
       --depends "openocd (>= 0.12)" \
       .
+elif command -v dpkg-deb >/dev/null 2>&1; then
+  ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
+  mkdir -p "$STAGE/DEBIAN"
+  cat > "$STAGE/DEBIAN/control" <<EOF
+Package: hwval-factory
+Version: $VERSION
+Section: utils
+Priority: optional
+Architecture: $ARCH
+Depends: openocd (>= 0.12)
+Maintainer: Sandesh Ghimire <sandesh@soccentric.com>
+Homepage: https://github.com/soccentric-stm32/soccentric-stm32-factory-provisioning
+Description: HWVAL Factory end-of-line test and provisioning
+ STM32F767ZI end-of-line test and provisioning station.
+EOF
+  dpkg-deb --build --root-owner-group "$STAGE" \
+      "$ROOT/dist/hwval-factory_${VERSION}_${ARCH}.deb"
 else
-  echo "fpm not found: deb staging directory is in $STAGE" >&2
+  echo "neither fpm nor dpkg-deb found: deb staging directory is in $STAGE" >&2
 fi
 
 if command -v appimagetool >/dev/null 2>&1; then
