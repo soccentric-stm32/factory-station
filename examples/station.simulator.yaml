@@ -1,0 +1,50 @@
+# HWVAL Factory simulator station — no hardware needed.
+# Run: hwval-factory-ui --station examples/station.simulator.yaml --auto-login admin:1234
+station:
+  id: STN-SIM
+  name: HWVAL Factory simulator
+  line: SIM
+
+simulation: true
+profiles_dir: .
+database: ../station-data/simulator.sqlite
+labels_dir: ../station-data/labels
+certificates_dir: ../station-data/certificates
+
+fixtures:
+  - name: F1
+    probe_serial: SIM-STLINK-01
+    telnet_port: 4444
+    position: 0
+    power: { driver: none }
+  - name: F2
+    probe_serial: SIM-STLINK-02
+    telnet_port: 4445
+    position: 1
+    power: { driver: none }
+  - name: F3
+    probe_serial: SIM-STLINK-03
+    telnet_port: 4446
+    position: 2
+    power: { driver: none }
+  - name: F4
+    probe_serial: SIM-STLINK-04
+    telnet_port: 4447
+    position: 3
+    power: { driver: none }
+
+printer:
+  enabled: false
+  output_dir: ../station-data/labels
+
+mes:
+  enabled: false
+
+security:
+  session_timeout_minutes: 30
+  retest_after_failures: 2
+  self_test_interval_hours: 24
+  maintenance_count: 10000
+  require_profile_signature: false
+
+kiosk: false

@@ -1,0 +1,110 @@
+profile: sc767-demo
+version: 1.2.0
+product: SoCcentric demo board
+hw_revisions:
+- B
+- C
+min_factory_version: 0.1.0
+released:
+  by: Sandesh Ghimire
+  at: '2026-11-03'
+parts:
+  dev_id: 1105
+  rev_id:
+  - 4097
+  flash_kb: 2048
+images:
+  test:
+    file: hwval-0.2.0.elf
+    sha256: f7caf4634581038aedbfc2e191373763a5e9a8053fcb665d63452d8ec70fd9ba
+  boot:
+    file: boot-0.1.0.hex
+    sha256: c00fb9710be01fc19a04806a2337c2d0489129f2da4957ec20d9e8f1443d855c
+  app:
+    file: demo-app-0.2.0.img
+    sha256: 13a2697c56c170fde83ddb88b9b4a6d6942e51bee18308091a46fdefc9e5d41c
+    slot: A
+layout:
+  slot_a: '0x08020000'
+boot_metadata:
+  address: '0x0801F000'
+  stride: '0x100'
+provisioning:
+  address: '0x08104000'
+  customer:
+    '0x40': SoCcentric
+  custom:
+    line: SIM
+boot_check:
+  role: APP
+  timeout_s: 10
+hello_timeout_s: 10
+test_plan:
+  tests:
+  - DEV.*
+  - CORE.001
+  - CLK.001
+  - CLK.002
+  - RAM.*
+  - FLS.001
+  - ADC.001
+  - GPIO.004
+  - LED.*
+  - BTN.001
+  - UART.001.USART6
+  - ETH.002
+  allow_operator: true
+  timeout_s: 90
+  limits:
+    CLK.001:
+      min: 15840
+      max: 16160
+      unit: kHz
+calibration:
+- field: '0x20'
+  from: ADC.001.vrefint_mv
+  rule: round(value)
+  range:
+  - 1180
+  - 1240
+  unit: mV
+identity:
+  serial: SC767-{yyww}-{counter:06}-{luhn}
+  mac:
+    enabled: true
+    oui_block: 02:00:00:00:00:00/24
+    allow_local: true
+protection:
+  nDBANK: 0
+  nDBOOT: 0
+  BOR_LEV: 3
+  wrp_sectors:
+    bank1:
+    - 0
+    - 1
+    bank2:
+    - 1
+  rdp: 0
+label:
+  template: label-50x25.zpl
+  fields:
+  - serial
+  - mac
+  - product
+  - hw_revision
+  - date
+  - fw_version
+  width_mm: 50
+  height_mm: 25
+steps:
+  enabled:
+    calibrate: true
+    protect: true
+    label: true
+  retries:
+    identify: 1
+    prepare: 1
+    test: 1
+    program: 1
+    boot_check: 2
+    label: 1

@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hwval-factory"
+version = "0.1.0"
+description = "HWVAL Factory — STM32F767ZI end-of-line test and provisioning station"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Sandesh Ghimire", email = "sandesh@soccentric.com" }]
+dependencies = [
+    "PySide6>=6.6",
+    "pyserial>=3.5",
+    "PyYAML>=6.0",
+    "flatbuffers>=23.5",
+    "cryptography>=41.0",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-qt", "ruff>=0.6", "mypy>=1.10"]
+packaging = ["pyinstaller>=6.6"]
+
+[project.scripts]
+hwval-factory = "hwval_factory.cli:main"
+hwval-factory-ui = "hwval_factory.app:main"
+hwval-profile = "hwval_factory.profile_tool:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+hwval_factory = ["resources/*"]
+hostcore = ["resources/*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = false
+ignore_missing_imports = true
+files = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
