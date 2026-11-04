@@ -1,17 +1,16 @@
-"""Firmware image parsing shared by Studio and Factory.
+"""Firmware image parsing and BOOT metadata records.
 
 Supported formats:
 
 * Intel HEX (``.hex``) — records are parsed into a sparse address map.
 * raw binary (``.bin``) — loaded at an explicit base address.
 * ELF32/ELF64 little-endian (``.elf``) — PT_LOAD segments are extracted.
-* HWVAL application image (``.img``) — ``FactoryImageHeader`` followed by the
-  payload.  The header carries the firmware version and name the factory needs
-  to compose the bootloader metadata records (EOL-005, [BOOT] Appendix B).
+* IBWH application image (``.img``) — the 256-byte header built by
+  ``bootloader/tools/mkimage.py`` followed by the raw application binary.
 
-Nothing here talks to hardware; OpenOCD receives the original file path for
-``program`` and the parsed image is used for validation, CRC32 checks and the
-metadata records.
+The metadata helpers implement Appendix B of the BOOT SRS: a 256-byte image
+header at ``+0x000`` and 32-byte VERIFIED/ACTIVATED/CONFIRMED records at their
+fixed offsets.  Nothing here talks to hardware.
 """
 
 from __future__ import annotations
@@ -23,30 +22,39 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO
 
+from hostcore.layout import (
+    APP_LOAD_ADDR,
+    IMAGE_HEADER_SIZE,
+    IMAGE_HEADER_VERSION,
+    IMAGE_MAGIC,
+    IMAGE_TYPE_APPLICATION,
+    META_ACTIVATED_MAGIC,
+    META_ACTIVATED_OFFSET,
+    META_CONFIRMED_MAGIC,
+    META_CONFIRMED_OFFSET,
+    META_HEADER_SIZE,
+    META_RECORD_SIZE,
+    META_VERIFIED_MAGIC,
+    META_VERIFIED_OFFSET,
+    RAM_END,
+    RAM_START,
+    SLOT_SIZE,
+)
+
 DEFAULT_FLASH_BASE = 0x08000000
-IMAGE_MAGIC = b"SCFW"
-IMAGE_HEADER = struct.Struct("<4sHHIIIII32s16s")
-# magic, format, header_size, version, load_addr, entry, payload_len,
-# payload_crc32, name[32], reserved[16]
-IMAGE_HEADER_SIZE = IMAGE_HEADER.size
+IMAGE_MAGIC_BYTES = b"IBWH"
 
-METADATA_MAGIC = b"BMET"
-METADATA_HEADER = struct.Struct("<4sBBBBHIIII")
-# magic, format, record_type, slot, reserved, sequence, firmware_version,
-# image_size, image_crc32, header_crc32
-METADATA_SIZE = METADATA_HEADER.size
+# magic, version, header_size, type, version(int), image_size, image_crc32,
+# load_addr, entry, build_timestamp
+_IMAGE_FIELDS = struct.Struct("<IHHIIIIIII")
+_COMMIT_OFFSET = 36
+_COMMIT_SIZE = 20
+_NAME_OFFSET = 56
+_NAME_SIZE = 32
+_HEADER_CRC_OFFSET = 252
 
-METADATA_HEADER_RECORD = 1
-METADATA_VERIFIED = 2
-METADATA_ACTIVATED = 3
-METADATA_CONFIRMED = 4
-
-METADATA_NAMES = {
-    METADATA_HEADER_RECORD: "HEADER",
-    METADATA_VERIFIED: "VERIFIED",
-    METADATA_ACTIVATED: "ACTIVATED",
-    METADATA_CONFIRMED: "CONFIRMED",
-}
+# Backwards-compatible names used by older callers/tests.
+METADATA_SIZE = META_RECORD_SIZE
 
 
 class ImageError(RuntimeError):
@@ -75,6 +83,11 @@ class FirmwareImage:
     name: str = ""
     load_address: int = 0
     header_format: int = 0
+    image_type: int = 0
+    build_timestamp: int = 0
+    git_commit: str = ""
+    header: bytes = b""
+    header_crc32: int = 0
 
     @property
     def size(self) -> int:
@@ -91,33 +104,116 @@ class FirmwareImage:
         return max(s.address + s.size for s in self.segments)
 
     def version_string(self) -> str:
-        return f"{self.version >> 16}.{(self.version >> 8) & 0xFF}.{self.version & 0xFF}"
+        return version_text(self.version)
 
     def to_metadata_records(self, slot: int = 0, sequence: int = 1) -> list[bytes]:
-        """Compose the four records BOOT expects for a factory-programmed slot."""
-        image_crc = self.crc32
-        records: list[bytes] = []
-        for record_type in (
-            METADATA_HEADER_RECORD,
-            METADATA_VERIFIED,
-            METADATA_ACTIVATED,
-            METADATA_CONFIRMED,
-        ):
-            prefix = METADATA_HEADER.pack(
-                METADATA_MAGIC,
-                1,
-                record_type,
-                slot,
-                0,
-                sequence,
-                self.version,
-                len(self.data),
-                image_crc,
-                0,
-            )
-            crc = zlib.crc32(prefix[:-4]) & 0xFFFFFFFF
-            records.append(prefix[:-4] + struct.pack("<I", crc))
+        """Return the Appendix B bytes to write into one metadata sector.
+
+        Element 0 is the 256-byte image header at ``+0x000``.  The following
+        elements are the 32-byte VERIFIED, ACTIVATED and CONFIRMED records at
+        their fixed offsets (``0x100``, ``0x120`` and ``0x140``).
+        """
+        if not self.header:
+            raise ImageError("metadata requires an IBWH image header")
+        if len(self.header) != IMAGE_HEADER_SIZE:
+            raise ImageError("IBWH header must be 256 bytes")
+        records = [self.header]
+        records.append(make_metadata_record(META_VERIFIED_MAGIC, self.crc32))
+        records.append(make_metadata_record(META_ACTIVATED_MAGIC, sequence & 0xFFFFFFFF))
+        records.append(make_metadata_record(META_CONFIRMED_MAGIC, 0))
         return records
+
+    def metadata_offsets(self) -> list[int]:
+        return [
+            0,
+            META_VERIFIED_OFFSET,
+            META_ACTIVATED_OFFSET,
+            META_CONFIRMED_OFFSET,
+        ]
+
+
+def version_text(value: int) -> str:
+    return f"{(value >> 24) & 0xFF}.{(value >> 16) & 0xFF}.{value & 0xFF}"
+
+
+def make_metadata_record(magic: int, value: int) -> bytes:
+    """Build one Appendix B record: magic, value, five zeros, CRC32."""
+    body = struct.pack("<IIIIIII", magic, value & 0xFFFFFFFF, 0, 0, 0, 0, 0)
+    return body + struct.pack("<I", zlib.crc32(body) & 0xFFFFFFFF)
+
+
+def parse_metadata_record(blob: bytes) -> tuple[int, int, bool]:
+    """Return ``(magic, value, present)``; ``present`` requires magic+CRC."""
+    if len(blob) < META_RECORD_SIZE:
+        return 0, 0, False
+    magic, value = struct.unpack_from("<II", blob)
+    (crc,) = struct.unpack_from("<I", blob, META_RECORD_SIZE - 4)
+    present = zlib.crc32(blob[: META_RECORD_SIZE - 4]) & 0xFFFFFFFF == crc
+    return magic, value, present
+
+
+def _parse_ibwh_header(header: bytes, path: Path) -> dict[str, int | str | bytes]:
+    if len(header) < IMAGE_HEADER_SIZE:
+        raise ImageError(f"{path.name}: shorter than a 256-byte IBWH header")
+    (
+        magic,
+        header_version,
+        header_size,
+        image_type,
+        version,
+        image_size,
+        image_crc32,
+        load_address,
+        entry_address,
+        build_timestamp,
+    ) = _IMAGE_FIELDS.unpack_from(header)
+    if magic != IMAGE_MAGIC:
+        raise ImageError(f"{path.name}: bad image magic")
+    if header_version != IMAGE_HEADER_VERSION:
+        raise ImageError(f"{path.name}: unsupported image header version {header_version}")
+    if header_size != IMAGE_HEADER_SIZE:
+        raise ImageError(f"{path.name}: bad image header size {header_size}")
+    if image_type != IMAGE_TYPE_APPLICATION:
+        raise ImageError(f"{path.name}: unsupported image type {image_type}")
+    if load_address != APP_LOAD_ADDR:
+        raise ImageError(
+            f"{path.name}: load address 0x{load_address:08X} != 0x{APP_LOAD_ADDR:08X}"
+        )
+    if image_size > SLOT_SIZE:
+        raise ImageError(f"{path.name}: image size {image_size} exceeds the slot")
+    (header_crc,) = struct.unpack_from("<I", header, _HEADER_CRC_OFFSET)
+    if zlib.crc32(header[:_HEADER_CRC_OFFSET]) & 0xFFFFFFFF != header_crc:
+        raise ImageError(f"{path.name}: image header CRC32 mismatch")
+    return {
+        "header_version": header_version,
+        "header_size": header_size,
+        "image_type": image_type,
+        "version": version,
+        "image_size": image_size,
+        "image_crc32": image_crc32,
+        "load_address": load_address,
+        "entry_address": entry_address,
+        "build_timestamp": build_timestamp,
+        "git_commit": header[_COMMIT_OFFSET : _COMMIT_OFFSET + _COMMIT_SIZE].hex(),
+        "name": header[_NAME_OFFSET : _NAME_OFFSET + _NAME_SIZE]
+        .rstrip(b"\0")
+        .decode("ascii", "replace"),
+        "header_crc32": header_crc,
+    }
+
+
+def validate_vectors(binary: bytes) -> list[str]:
+    errors: list[str] = []
+    if len(binary) < 8:
+        errors.append("input binary is too small for a vector table")
+        return errors
+    sp, entry = struct.unpack_from("<II", binary, 0)
+    if not (RAM_START < sp <= RAM_END) or (sp & 0x7):
+        errors.append(f"initial SP 0x{sp:08x} is not in internal RAM")
+    entry_addr = entry & ~1
+    if not (entry & 1) or not (APP_LOAD_ADDR <= entry_addr < APP_LOAD_ADDR + SLOT_SIZE):
+        errors.append(f"reset vector 0x{entry:08x} is not inside slot A")
+    return errors
 
 
 def sha256_file(path: str | Path) -> str:
@@ -133,62 +229,81 @@ def build_image(
     *,
     version: int,
     name: str,
-    load_address: int = 0x08020000,
+    load_address: int = APP_LOAD_ADDR,
     entry: int | None = None,
+    build_timestamp: int = 0,
+    git_commit: str = "",
 ) -> bytes:
-    """Build a ``.img`` file with the factory header (used by the profile tool)."""
+    """Build an IBWH ``.img`` file from a raw application binary."""
+    errors = validate_vectors(payload)
+    if errors:
+        raise ImageError("; ".join(errors))
+    if load_address != APP_LOAD_ADDR:
+        raise ImageError(f"applications must load at 0x{APP_LOAD_ADDR:08X}")
     crc = zlib.crc32(payload) & 0xFFFFFFFF
-    header = IMAGE_HEADER.pack(
+    reset_vector = struct.unpack_from("<I", payload, 4)[0] if entry is None else entry
+    header = bytearray(IMAGE_HEADER_SIZE)
+    _IMAGE_FIELDS.pack_into(
+        header,
+        0,
         IMAGE_MAGIC,
-        1,
-        IMAGE_HEADER.size,
+        IMAGE_HEADER_VERSION,
+        IMAGE_HEADER_SIZE,
+        IMAGE_TYPE_APPLICATION,
         version,
-        load_address,
-        entry if entry is not None else load_address,
         len(payload),
         crc,
-        name.encode("ascii", "replace")[:32].ljust(32, b"\0"),
-        b"\0" * 16,
+        load_address,
+        reset_vector,
+        build_timestamp & 0xFFFFFFFF,
     )
-    return header + payload
+    raw_commit = bytes(20)
+    text = git_commit.strip()
+    if text:
+        try:
+            raw_commit = bytes.fromhex(text[:40]) if len(text) >= 40 else text[:20].encode()
+        except ValueError:
+            raw_commit = text[:20].encode("ascii", "replace")
+        raw_commit = raw_commit[:20].ljust(20, b"\0")
+    header[_COMMIT_OFFSET : _COMMIT_OFFSET + _COMMIT_SIZE] = raw_commit
+    header[_NAME_OFFSET : _NAME_OFFSET + _NAME_SIZE] = (
+        name.encode("ascii", "replace")[:32].ljust(32, b"\0")
+    )
+    struct.pack_into("<I", header, _HEADER_CRC_OFFSET, zlib.crc32(header[:252]) & 0xFFFFFFFF)
+    return bytes(header) + payload
 
 
 def _parse_img(path: Path) -> FirmwareImage:
     raw = path.read_bytes()
-    if len(raw) < IMAGE_HEADER_SIZE:
-        raise ImageError(f"{path.name}: short application image header")
-    (
-        magic,
-        fmt,
-        header_size,
-        version,
-        load_address,
-        entry,
-        payload_len,
-        payload_crc,
-        name,
-        _reserved,
-    ) = IMAGE_HEADER.unpack_from(raw)
-    if magic != IMAGE_MAGIC:
-        raise ImageError(f"{path.name}: bad image magic")
-    if fmt != 1 or header_size < IMAGE_HEADER_SIZE:
-        raise ImageError(f"{path.name}: unsupported image format {fmt}")
-    payload = raw[header_size : header_size + payload_len]
+    header = raw[:IMAGE_HEADER_SIZE]
+    fields = _parse_ibwh_header(header, path)
+    payload_len = int(fields["image_size"])
+    payload = raw[IMAGE_HEADER_SIZE : IMAGE_HEADER_SIZE + payload_len]
     if len(payload) != payload_len:
         raise ImageError(f"{path.name}: truncated image payload")
-    if zlib.crc32(payload) & 0xFFFFFFFF != payload_crc:
+    if zlib.crc32(payload) & 0xFFFFFFFF != int(fields["image_crc32"]):
         raise ImageError(f"{path.name}: image payload CRC32 mismatch")
+    errors = validate_vectors(payload)
+    if errors:
+        raise ImageError(f"{path.name}: " + "; ".join(errors))
+    if len(raw) > IMAGE_HEADER_SIZE + payload_len:
+        raise ImageError(f"{path.name}: trailing bytes after the image payload")
     return FirmwareImage(
         path=path,
         kind="img",
         data=payload,
         sha256=hashlib.sha256(raw).hexdigest(),
-        segments=[Segment(load_address, payload)],
-        entry=entry,
-        version=version,
-        name=name.rstrip(b"\0").decode("ascii", "replace"),
-        load_address=load_address,
-        header_format=fmt,
+        segments=[Segment(int(fields["load_address"]), payload)],
+        entry=int(fields["entry_address"]),
+        version=int(fields["version"]),
+        name=str(fields["name"]),
+        load_address=int(fields["load_address"]),
+        header_format=int(fields["header_version"]),
+        image_type=int(fields["image_type"]),
+        build_timestamp=int(fields["build_timestamp"]),
+        git_commit=str(fields["git_commit"]),
+        header=header,
+        header_crc32=int(fields["header_crc32"]),
     )
 
 
@@ -328,14 +443,32 @@ def parse_image(path: str | Path, base_address: int = DEFAULT_FLASH_BASE) -> Fir
         return _parse_elf(p)
     if suffix in (".bin", ".binary"):
         return _parse_bin(p, base_address)
-    # Sniff the content when the extension is unusual.
     head = p.read_bytes()[:16]
     if head[:4] == b"\x7fELF":
         return _parse_elf(p)
-    if head[:4] == IMAGE_MAGIC:
+    if head[:4] == IMAGE_MAGIC_BYTES:
         return _parse_img(p)
     raise ImageError(f"{p.name}: unsupported firmware image format")
 
 
 def write_stream(path: Path) -> BinaryIO:
     return path.open("wb")
+
+
+__all__ = [
+    "DEFAULT_FLASH_BASE",
+    "METADATA_SIZE",
+    "META_HEADER_SIZE",
+    "META_RECORD_SIZE",
+    "FirmwareImage",
+    "ImageError",
+    "Segment",
+    "build_image",
+    "make_metadata_record",
+    "parse_image",
+    "parse_metadata_record",
+    "sha256_file",
+    "validate_vectors",
+    "version_text",
+    "write_stream",
+]

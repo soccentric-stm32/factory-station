@@ -85,6 +85,7 @@ class OpenOcdBackend(Protocol):
     def read_u16(self, address: int) -> int: ...
     def read_memory(self, address: int, length: int) -> bytes: ...
     def write_memory(self, address: int, data: bytes) -> None: ...
+    def erase_address(self, address: int, length: int) -> None: ...
     def read_option_bytes(self) -> OptionBytes: ...
     def write_option_bytes(self, optcr: int, optcr1: int) -> None: ...
 
@@ -311,10 +312,15 @@ class OpenOcdProcess:
     def read_memory(self, address: int, length: int) -> bytes:
         if length <= 0:
             return b""
-        self.command(f"read_memory 0x{address:08X} {length} 1")
-        # OpenOCD's read_memory is a Tcl command; it returns a string.  Prefer
-        # dump_image to a temporary file, which preserves arbitrary bytes.
+        # Prefer dump_image to a temporary file: it preserves arbitrary bytes
+        # and works for flash, OTP and SRAM regions alike.
         return self._dump_image(address, length)
+
+    def erase_address(self, address: int, length: int) -> None:
+        """Erase every flash sector that overlaps ``[address, address+length)``."""
+        if length <= 0:
+            return
+        self.command(f"flash erase_address 0x{address:08X} 0x{length:08X}", timeout=120.0)
 
     def _dump_image(self, address: int, length: int) -> bytes:
         import tempfile
@@ -332,16 +338,31 @@ class OpenOcdProcess:
                 os.unlink(name)
 
     def write_memory(self, address: int, data: bytes) -> None:
+        """Program bytes with the OpenOCD flash driver, then verify them.
+
+        ``load_image`` writes target memory (SRAM/peripheral space), not flash,
+        so it must never be used for metadata or the identity record.  The
+        caller is responsible for erasing the containing flash sector first;
+        this keeps append-only metadata writes from erasing earlier records.
+        """
         import tempfile
 
+        if not data:
+            return
         with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as handle:
             handle.write(data)
             name = handle.name
         try:
-            self.command(
-                f'load_image "{name}" 0x{address:08X} bin',
-                timeout=120.0,
-            )
+            if 0x0800_0000 <= address < 0x0820_0000:
+                self.command(
+                    f'flash write_image "{name}" 0x{address:08X} bin',
+                    timeout=120.0,
+                )
+                self.verify_image(name, address)
+            else:
+                # OTP / backup registers / SRAM: not reachable by the flash
+                # driver.  load_image is correct for this address space.
+                self.command(f'load_image "{name}" 0x{address:08X} bin', timeout=120.0)
         finally:
             with contextlib.suppress(OSError):
                 os.unlink(name)
@@ -356,31 +377,42 @@ class OpenOcdProcess:
         )
 
     def write_option_bytes(self, optcr: int, optcr1: int) -> None:
-        """Program option bytes.
+        """Program option bytes with OpenOCD's real F7 argument list.
 
-        OPEN-F02: the ``stm32f2x options_write`` argument list differs between
-        OpenOCD versions.  Try the documented pair form first, then the F7
-        register path.  RDP level 2 is rejected before this method is called.
+        ``stm32f2x options_write <bank> <user_options> <boot_addr0>
+        <boot_addr1>`` is the documented form (provision.sh, OPEN-B05).  The
+        raw OPTCR value carries nDBANK/nDBOOT/WRP/RDP/BOR; the two boot
+        addresses live in OPTCR1.  RDP level 2 is rejected by the caller and
+        again here.
         """
+        if ((optcr >> 8) & 0xFF) == 0xCC:
+            raise OpenOcdError("RDP level 2 is permanent and is never permitted")
+        boot0 = optcr1 & 0xFFFF
+        boot1 = (optcr1 >> 16) & 0xFFFF
         try:
-            self.command(f"stm32f2x options_write 0x{optcr:08X} 0x{optcr1:08X}", timeout=30.0)
+            self.command(
+                f"stm32f2x options_write 0 0x{optcr:08X} 0x{boot0:04X} 0x{boot1:04X}",
+                timeout=30.0,
+            )
         except OpenOcdError:
-            # Register fallback for OpenOCD builds without the stm32f2x
-            # options_write argument set (OPEN-F02).
-            self.halt()
-            self.command(f"mww 0x{FLASH_OPTKEYR:08X} 0x08192A3B")
-            self.command(f"mww 0x{FLASH_OPTKEYR:08X} 0x4C5D6E7F")
-            self.command(f"mww 0x{FLASH_OPTCR:08X} 0x{optcr & ~0x1:08X}")
-            self.command(f"mww 0x{FLASH_OPTCR1:08X} 0x{optcr1:08X}")
-            # OPTSTRT is bit 1 in OPTCR; bit 0 is OPTLOCK.
-            self.command(f"mww 0x{FLASH_OPTCR:08X} 0x{(optcr & ~0x1) | 0x2:08X}")
-            deadline = time.monotonic() + 5.0
-            while time.monotonic() < deadline:
-                if not (self.read_u32(FLASH_SR) & 0x10000):
-                    break
-                time.sleep(0.05)
-            self.command(f"mww 0x{FLASH_OPTCR:08X} 0x{optcr | 0x1:08X}")
+            self._write_option_bytes_by_register(optcr, optcr1)
         self.reset(halt=True)
+
+    def _write_option_bytes_by_register(self, optcr: int, optcr1: int) -> None:
+        """Register fallback for OpenOCD builds without options_write."""
+        self.halt()
+        self.command(f"mww 0x{FLASH_OPTKEYR:08X} 0x08192A3B")
+        self.command(f"mww 0x{FLASH_OPTKEYR:08X} 0x4C5D6E7F")
+        self.command(f"mww 0x{FLASH_OPTCR1:08X} 0x{optcr1:08X}")
+        self.command(f"mww 0x{FLASH_OPTCR:08X} 0x{optcr & ~0x1:08X}")
+        # OPTSTRT is bit 1 in OPTCR; bit 0 is OPTLOCK.
+        self.command(f"mww 0x{FLASH_OPTCR:08X} 0x{(optcr & ~0x1) | 0x2:08X}")
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if not (self.read_u32(FLASH_SR) & 0x10000):
+                break
+            time.sleep(0.05)
+        self.command(f"mww 0x{FLASH_OPTCR:08X} 0x{optcr | 0x1:08X}")
 
 
 def option_bytes_to_dict(option_bytes: OptionBytes) -> dict[str, int]:

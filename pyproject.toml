@@ -38,6 +38,7 @@ hostcore = ["resources/*"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+extend-exclude = ["src/hostcore/protocol/generated"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
@@ -49,6 +50,13 @@ strict = true
 warn_unused_ignores = false
 ignore_missing_imports = true
 files = ["src"]
+# Vendored wire code from HWVAL Studio and its simulator are checked by their
+# own repository; typing them here would duplicate generated FlatBuffers code.
+exclude = [
+    "^src/hostcore/protocol/",
+    "^src/hostcore/simulator_device.py$",
+    "^src/hostcore/test_catalogue.py$",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

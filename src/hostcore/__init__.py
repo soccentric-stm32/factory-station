@@ -10,17 +10,15 @@ The package deliberately has no dependency on the Factory application.
 """
 
 from hostcore.hwlink import (
-    FrameParser,
     HwLinkClient,
     HwLinkError,
-    HwLinkMessage,
     HwLinkSession,
     SerialTransport,
-    SimulatedDevice,
     SimulatedTransport,
 )
 from hostcore.images import FirmwareImage, ImageError, parse_image, sha256_file
 from hostcore.openocd import OpenOcdError, OpenOcdProcess
+from hostcore.protocol.link import FrameParser
 from hostcore.theme import COLORS, apply_theme, icon
 
 __all__ = [
@@ -29,13 +27,11 @@ __all__ = [
     "FrameParser",
     "HwLinkClient",
     "HwLinkError",
-    "HwLinkMessage",
     "HwLinkSession",
     "ImageError",
     "OpenOcdError",
     "OpenOcdProcess",
     "SerialTransport",
-    "SimulatedDevice",
     "SimulatedTransport",
     "apply_theme",
     "icon",
