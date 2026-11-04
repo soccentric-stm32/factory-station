@@ -34,6 +34,7 @@ The factory-side P0 contract work is implemented and covered by `make test`:
 | F-05/F-06 self-test expiry and insertion maintenance block production | done |
 | F-08 HID and serial barcode scanners with prefix/suffix and fixture routing | done |
 | J-01/J-02 pytest suite and cross-repo contract checks | done |
+| H-02/H-04 MES idempotency, DB quick-check, backups and schema-version guard | done |
 | J-03 pytest-qt UI smoke, scenario CLI and MES idempotency | done |
 | J-05 ruff and mypy gates | done |
 

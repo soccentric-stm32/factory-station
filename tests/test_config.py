@@ -39,3 +39,17 @@ scanner: {mode: serial}
     )
     with pytest.raises(ConfigError, match="serial_port"):
         load_station_config(path)
+
+
+def test_newer_database_schema_is_refused(tmp_path: Path) -> None:
+    import sqlite3
+
+    from hwval_factory.database import Database
+
+    path = tmp_path / "future.sqlite"
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA user_version = 99")
+    conn.close()
+    db = Database(path)
+    with pytest.raises(sqlite3.DatabaseError, match="newer than this application"):
+        db.initialize()

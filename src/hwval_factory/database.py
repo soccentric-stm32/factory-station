@@ -18,8 +18,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+SCHEMA_VERSION = 1
+
 SCHEMA = """
-PRAGMA user_version = 1;
 PRAGMA journal_mode = WAL;
 
 CREATE TABLE IF NOT EXISTS units (
@@ -287,7 +288,15 @@ class Database:
             try:
                 with self._lock:
                     conn = self._conn()
+                    row = conn.execute("PRAGMA user_version").fetchone()
+                    current = 0 if row is None else int(row[0])
+                    if current > SCHEMA_VERSION:
+                        raise sqlite3.DatabaseError(
+                            f"database schema {current} is newer than this application "
+                            f"({SCHEMA_VERSION}); upgrade HWVAL Factory"
+                        )
                     conn.executescript(SCHEMA)
+                    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
                     conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
                 break
             except sqlite3.OperationalError as exc:
