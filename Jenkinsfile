@@ -1,7 +1,13 @@
 // Jenkinsfile - multi-stage CI for HWVAL Factory (end-of-line station).
 //
 //   Checkout -> Setup -> Lint -> Type check -> Config check -> CLI smoke
-//            -> Station self-test -> Tests -> Package -> Publish
+//            -> Station self-test -> Tests -> Package -> Release (tags) -> Archive
+//
+// Package builds dist/<repo>-<version>.tar.gz (outputs, manifest.json,
+// SHA256SUMS) on every run.  Release runs only for a tag v<version> and
+// publishes dist/ as a GitHub release with the Jenkins secret-text credential
+// github-release-token.  To release: bump the version, push, then push the
+// tag (git tag v0.2.0 && git push origin v0.2.0).
 //
 // Pure Python; the agent needs python3 (>= 3.11), git and network access for
 // PyPI. The station runs entirely against the fixture simulator, so no
@@ -19,7 +25,7 @@ pipeline {
     }
 
     parameters {
-        booleanParam(name: 'PACKAGE', defaultValue: false, description: 'Build the Linux package (.deb / AppImage)')
+        booleanParam(name: 'PACKAGE', defaultValue: false, description: 'Build the Linux package (.deb / AppImage); always done for a release tag')
     }
 
     environment {
@@ -136,21 +142,39 @@ PY
         }
 
         stage('Package') {
-            when { expression { return params.PACKAGE } }
             steps {
-                sh 'PATH="${PWD}/${VENV}/bin:${PATH}" packaging/build-linux.sh'
-                archiveArtifacts artifacts: 'dist/*', allowEmptyArchive: true
+                sh '''
+                    rm -rf dist
+                    "${VENV}/bin/python" -m pip wheel --no-deps --wheel-dir dist .
+                    "${VENV}/bin/python" -m pip freeze > build-requirements.txt
+                '''
+                script {
+                    // The desktop bundle is slow; build it on request or for a release.
+                    if (params.PACKAGE || env.TAG_NAME) {
+                        sh 'PATH="${PWD}/${VENV}/bin:${PATH}" packaging/build-linux.sh'
+                    }
+                }
+                sh '''
+                    python3 ci/package.py --name factory-station --version "$(ci/version.sh)" \\
+                        requirements.txt build-requirements.txt README.md LICENSE
+                '''
             }
         }
 
-        stage('Publish') {
+        stage('Release') {
+            // Only for a tag build (Multibranch job with tag discovery).  The
+            // tag must be v<version>; ci/github_release.py checks it.
+            when { buildingTag() }
             steps {
-                sh '''
-                    "${VENV}/bin/python" -m pip freeze > build-requirements.txt
-                    sha256sum requirements.txt build-requirements.txt > SHA256SUMS
-                    cat SHA256SUMS
-                '''
-                archiveArtifacts artifacts: 'build-requirements.txt,SHA256SUMS', fingerprint: true
+                withCredentials([string(credentialsId: 'github-release-token', variable: 'GITHUB_TOKEN')]) {
+                    sh 'python3 ci/github_release.py --tag "${TAG_NAME}" --version "$(ci/version.sh)" dist/*'
+                }
+            }
+        }
+
+        stage('Archive') {
+            steps {
+                archiveArtifacts artifacts: 'dist/*', fingerprint: true
             }
         }
     }
