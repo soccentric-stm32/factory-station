@@ -77,15 +77,26 @@ class SessionInfo:
 
 
 class AuthService:
+    # ACC-003: 5 failed PIN attempts lock the account for 60 s.
+    _MAX_FAILURES = 5
+    _LOCKOUT_S = 60.0
+
     def __init__(self, db: Database) -> None:
         self.db = db
         self.session: SessionInfo | None = None
+        self._failures: dict[str, list[float]] = {}
 
     def ensure_default_admin(self) -> bool:
         if self.db.user("admin") is not None:
             return False
         pin = os.environ.get("HWVAL_ADMIN_PIN", "1234")
         self.add_user("admin", Role.ADMIN, pin, badge="ADMIN")
+        if "HWVAL_ADMIN_PIN" not in os.environ:
+            self.db.audit(
+                "system",
+                "user.warning",
+                "default admin PIN in use; set HWVAL_ADMIN_PIN before production",
+            )
         self.db.audit("system", "user.create", "default administrator created")
         return True
 
@@ -133,6 +144,18 @@ class AuthService:
         except (KeyError, TypeError) as exc:
             raise AuthError("invalid user record") from exc
 
+    def _locked_until(self, username: str) -> float:
+        now = time.monotonic()
+        recent = [
+            stamp
+            for stamp in self._failures.get(username, [])
+            if now - stamp < self._LOCKOUT_S
+        ]
+        self._failures[username] = recent
+        if len(recent) < self._MAX_FAILURES:
+            return 0.0
+        return (recent[0] + self._LOCKOUT_S) - now
+
     def verify_credentials(self, username: str, pin: str) -> User:
         """Check a PIN without activating a session.
 
@@ -140,14 +163,20 @@ class AuthService:
         session (ACC-002).  This helper is used by approval dialogs; the
         normal :meth:`authenticate_pin` still installs the session.
         """
+        wait = self._locked_until(username)
+        if wait > 0.0:
+            self.db.audit(username, "login.fail", "account locked")
+            raise AuthError(f"too many failed attempts; try again in {wait:.0f} s")
         row = self.db.user(username)
         if row is None or not bool(row["active"]):
             self.db.audit(username or "unknown", "login.fail", "unknown or inactive user")
             raise AuthError("unknown user or bad PIN")
         user = self._row_to_user(row)
         if not verify_pin(pin, user.pin_hash):
+            self._failures.setdefault(username, []).append(time.monotonic())
             self.db.audit(username, "login.fail", "bad PIN")
             raise AuthError("unknown user or bad PIN")
+        self._failures.pop(username, None)
         return user
 
     def authenticate_pin(self, username: str, pin: str) -> SessionInfo:
