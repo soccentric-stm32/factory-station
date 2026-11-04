@@ -12,6 +12,7 @@ parts:
   dev_id: 1105
   rev_id:
   - 4097
+  - 4099
   flash_kb: 2048
 images:
   test:
@@ -22,15 +23,15 @@ images:
     sha256: c00fb9710be01fc19a04806a2337c2d0489129f2da4957ec20d9e8f1443d855c
   app:
     file: demo-app-0.2.0.img
-    sha256: 13a2697c56c170fde83ddb88b9b4a6d6942e51bee18308091a46fdefc9e5d41c
+    sha256: 0ef75ee8808003245890b06c128122dba9504425354f496f181f116ecbfa1828
     slot: A
 layout:
-  slot_a: '0x08020000'
+  slot_a: '0x0800C000'
 boot_metadata:
-  address: '0x0801F000'
-  stride: '0x100'
+  address: '0x08008000'
 provisioning:
   address: '0x08104000'
+  swapped_address: '0x08004000'
   customer:
     '0x40': SoCcentric
   custom:
@@ -45,28 +46,26 @@ test_plan:
   - CORE.001
   - CLK.001
   - CLK.002
-  - RAM.*
+  - RAM.006
   - FLS.001
   - ADC.001
+  - ADC.002
+  - PWR.001
   - GPIO.004
   - LED.*
   - BTN.001
-  - UART.001.USART6
-  - ETH.002
+  - UART.001
+  - ETH.001
   allow_operator: true
-  timeout_s: 90
-  limits:
-    CLK.001:
-      min: 15840
-      max: 16160
-      unit: kHz
+  timeout_s: 120
+  destructive_allowed: false
 calibration:
 - field: '0x20'
-  from: ADC.001.vrefint_mv
+  from: PWR.001
   rule: round(value)
   range:
-  - 1180
-  - 1240
+  - 3135
+  - 3465
   unit: mV
 identity:
   serial: SC767-{yyww}-{counter:06}-{luhn}
@@ -76,7 +75,7 @@ identity:
     allow_local: true
 protection:
   nDBANK: 0
-  nDBOOT: 0
+  nDBOOT: 1
   BOR_LEV: 3
   wrp_sectors:
     bank1:
@@ -85,6 +84,8 @@ protection:
     bank2:
     - 1
   rdp: 0
+  BOOT_ADD0: 128
+  BOOT_ADD1: 64
 label:
   template: label-50x25.zpl
   fields:

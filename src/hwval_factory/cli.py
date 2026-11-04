@@ -7,6 +7,7 @@ exit code 0 PASS, 1 FAIL/ABORTED/INCOMPLETE and 2 station error.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import signal
 import sys
@@ -15,7 +16,13 @@ from typing import Any
 
 from hwval_factory import APP_NAME, __version__
 from hwval_factory.auth import AuthService
-from hwval_factory.config import ConfigError, default_station, load_station_config
+from hwval_factory.config import (
+    ConfigError,
+    default_station,
+    detect_stlink_serials,
+    detect_vcp_ports,
+    load_station_config,
+)
 from hwval_factory.database import Database, row_dict
 from hwval_factory.labels import LabelError
 from hwval_factory.models import Role, RunKind
@@ -53,6 +60,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fault-rate", type=float, default=0.0, help="simulated USB fault rate")
     parser.add_argument("--list-profiles", action="store_true")
     parser.add_argument("--list-fixtures", action="store_true")
+    parser.add_argument("--detect", action="store_true", help="list ST-LINK probes and VCP ports")
+    parser.add_argument(
+        "--probe", action="store_true", help="hardware bring-up: SWD + VCP checks for one fixture"
+    )
     parser.add_argument("--self-test", action="store_true", help="run station self-test")
     parser.add_argument("--reprint", type=int, metavar="RUN_ID", help="reprint a label")
     parser.add_argument("--export", choices=["csv", "json"], help="export runs and exit")
@@ -230,6 +241,84 @@ def _run_one(args: argparse.Namespace) -> int:
         db.close()
 
 
+def _run_probe(config: Any, fixture_name: str) -> int:
+    from hostcore.hwlink import HwLinkError, HwLinkSession, SerialTransport
+    from hostcore.openocd import OpenOcdError, OpenOcdProcess, option_bytes_to_dict
+
+    fixture = config.fixture(fixture_name)
+    failures = 0
+
+    def report(name: str, ok: bool, detail: str = "") -> None:
+        nonlocal failures
+        print(f"{'PASS' if ok else 'FAIL'}  {name}: {detail}")
+        if not ok:
+            failures += 1
+
+    report("probe configured", bool(fixture.probe_serial), fixture.probe_serial or "missing")
+    backend = OpenOcdProcess(
+        fixture.probe_serial,
+        openocd=config.openocd.binary,
+        interface_cfg=config.openocd.interface_cfg,
+        target_cfg=config.openocd.target_cfg,
+        telnet_port=fixture.telnet_port,
+    )
+    try:
+        backend.start()
+        report("OpenOCD start", True, f"telnet {fixture.telnet_port}")
+        backend.halt()
+        idcode = backend.read_u32(0xE0042000)
+        dev_id = idcode & 0xFFF
+        rev_id = (idcode >> 16) & 0xFFFF
+        report("IDCODE", dev_id != 0, f"DEV_ID=0x{dev_id:03X} REV_ID=0x{rev_id:04X}")
+        flash_kb = backend.read_u16(0x1FF0F442)
+        report("flash size", flash_kb > 0, f"{flash_kb} KB")
+        uid = backend.read_memory(0x1FF0F420, 12)
+        report("UID", len(uid) == 12, uid.hex().upper())
+        options = backend.read_option_bytes()
+        report("option bytes", True, str(option_bytes_to_dict(options)))
+        backend.stop()
+    except (OpenOcdError, OSError) as exc:
+        report("SWD", False, str(exc))
+        with contextlib.suppress(Exception):
+            backend.stop()
+    try:
+        transport = (
+            SerialTransport(fixture.serial_port)
+            if fixture.serial_port
+            else SerialTransport.find_by_probe_serial(fixture.probe_serial)
+        )
+    except HwLinkError as exc:
+        report("VCP open", False, str(exc))
+        return 1 if failures else 0
+    session = HwLinkSession(transport, timeout=5.0)
+    try:
+        hello = session.connect(timeout=10.0)
+        report(
+            "HWLINK Hello",
+            True,
+            f"role={hello.get('role')} fw={hello.get('firmware_name')} "
+            f"version={hello.get('version')} uid={hello.get('uid_hex')}",
+        )
+        if str(hello.get("role")) == "HWVAL":
+            info = session.device_info()
+            report("GetDeviceInfo", True, f"uid={info.get('uid')} optcr=0x{info.get('optcr', 0):08X}")
+        elif str(hello.get("role")) in ("DEMO", "APP"):
+            status = session.status()
+            report(
+                "GetStatus",
+                True,
+                f"slot={status.get('slot_name')} trial={status.get('trial_name')}",
+            )
+        else:
+            boot = session.boot_info()
+            report("GetBootInfo", True, f"active={boot.get('active_slot_name')}")
+    except HwLinkError as exc:
+        report("HWLINK Hello", False, str(exc))
+    finally:
+        session.close()
+    return 0 if failures == 0 else 1
+
+
 def _run_utility(args: argparse.Namespace) -> int:
     config, _simulation = _load_config(args)
     db = Database(config.database)
@@ -248,6 +337,23 @@ def _run_utility(args: argparse.Namespace) -> int:
             for fixture in config.fixtures:
                 print(f"{fixture.name}\t{fixture.probe_serial}\t{fixture.serial_port}")
             return 0
+        if args.detect:
+            print("ST-LINK probes:")
+            probes = detect_stlink_serials()
+            for probe in probes:
+                print(f"  {probe}")
+            if not probes:
+                print("  (none)")
+            print("VCP ports:")
+            ports = detect_vcp_ports()
+            for port in ports:
+                print(f"  {port['device']}\t{port['serial']}\t{port['description']}")
+            if not ports:
+                print("  (none)")
+            return 0
+        if args.probe:
+            fixture_name = args.fixture or next(f.name for f in config.fixtures if f.enabled)
+            return _run_probe(config, fixture_name)
         if args.export:
             target = args.output or Path(f"export-{args.work_order or 'all'}.{args.export}")
             if args.export == "csv":
@@ -312,6 +418,8 @@ def main(argv: list[str] | None = None) -> int:
     utility = (
         args.list_profiles
         or args.list_fixtures
+        or args.detect
+        or args.probe
         or args.export
         or args.certificate is not None
         or args.reprint is not None

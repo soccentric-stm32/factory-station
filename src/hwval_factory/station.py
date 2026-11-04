@@ -29,15 +29,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from hostcore import layout
 from hostcore.hwlink import (
     HwLinkError,
     HwLinkSession,
     SerialTransport,
     SimulatedTransport,
-    Transport,
 )
-from hostcore.images import FirmwareImage, ImageError
-from hostcore.openocd import OpenOcdBackend, OpenOcdError, OpenOcdProcess, OptionBytes
+from hostcore.images import FirmwareImage, ImageError, parse_metadata_record
+from hostcore.openocd import (
+    OpenOcdBackend,
+    OpenOcdError,
+    OpenOcdProcess,
+    OptionBytes,
+    option_bytes_to_dict,
+)
 from hwval_factory.config import StationConfig, validate_station_config
 from hwval_factory.database import Database, utcnow
 from hwval_factory.identity import (
@@ -84,9 +90,8 @@ from hwval_factory.simulator import SimulatedStation, SimulationBank
 DBGMCU_IDCODE = 0xE0042000
 FLASH_SIZE_REG = 0x1FF0F442
 UID_BASE = 0x1FF0F420
-DEFAULT_SLOT_A = 0x08020000
-DEFAULT_METADATA_BASE = 0x0801F000
-METADATA_STRIDE = 0x100
+DEFAULT_SLOT_A = layout.SLOT_A_BASE
+DEFAULT_METADATA_BASE = layout.META_A_BASE
 SCAN_TIMEOUT_S = 120.0
 
 
@@ -1028,29 +1033,35 @@ class Station:
         self._close_session(rt)
         session = self._open_session(ctx.fixture, rt)
         hello = self._wait_hello(
-            session, timeout=self._hello_timeout(profile), abort_event=rt.abort
+            session,
+            timeout=self._hello_timeout(profile),
+            abort_event=rt.abort,
+            expected_role="HWVAL",
         )
         role = str(hello.get("role", ""))
         if role.upper() != "HWVAL":
             raise StepFailure(f"test firmware reported role {role!r}, expected HWVAL")
-        reported_hash = str(hello.get("image_hash", "")).lower()
-        expected_hash = profile.test_image.sha256.lower()
-        if not reported_hash:
-            raise StepFailure("test firmware HelloReply has no image hash")
-        if reported_hash != expected_hash:
+        info = session.device_info()
+        reported_uid = str(info.get("uid", "")).upper().removeprefix("0X")
+        expected_uid = _uid_word_hex(ctx.uid)
+        if reported_uid != expected_uid:
             raise StepFailure(
-                f"test image hash mismatch: firmware {reported_hash[:16]}…, "
-                f"profile {expected_hash[:16]}…"
+                f"HWVAL reports UID {reported_uid or '(none)'} != SWD UID {expected_uid}"
             )
+        if int(info.get("flash_size_kb", 0)) not in (0, profile.parts.flash_kb):
+            raise StepFailure(
+                f"HWVAL reports {info.get('flash_size_kb')} KB flash, "
+                f"profile expects {profile.parts.flash_kb} KB"
+            )
+        if not info.get("firmware_name") and not hello.get("firmware_name"):
+            raise StepFailure("test firmware HelloReply has no firmware name")
         plan = profile.test_plan
-        if not plan.destructive_allowed:
-            for test_id in plan.tests:
-                if re.search(r"(^|[._-])(DEST|DESTRUCTIVE|LEVEL[_-]?E)([._-]|$)", test_id, re.I):
-                    raise StepFailure(
-                        f"test {test_id} is destructive/level E but the profile does not "
-                        "allow destructive tests"
-                    )
+        try:
+            selected = session.resolve_tests(plan.tests)
+        except HwLinkError as exc:
+            raise StepFailure(str(exc)) from exc
         ctx.test_results = []
+        selected_ids = {str(test["id"]) for test in selected}
 
         def _on_result(raw: dict[str, Any]) -> None:
             test = self._test_result_from_raw(raw)
@@ -1068,6 +1079,8 @@ class Station:
                 timeout=plan.timeout_s,
                 abort_event=rt.abort,
                 on_result=_on_result,
+                allow_destructive=plan.destructive_allowed,
+                selection=selected,
             )
         except HwLinkError as exc:
             if rt.abort is not None and rt.abort.is_set():
@@ -1080,7 +1093,13 @@ class Station:
             attempt_results.append(test)
             if test.result != "PASS" and first_failure is None:
                 first_failure = test
+        missing = selected_ids - {test.test_id for test in attempt_results}
         self._close_session(rt)
+        if missing:
+            raise StepFailure(
+                "device did not return a result for: " + ", ".join(sorted(missing)),
+                test_results=attempt_results,
+            )
         if result.get("result") != "PASS" or first_failure is not None:
             if first_failure is not None:
                 detail = first_failure.reason or "test failed"
@@ -1104,18 +1123,49 @@ class Station:
         ctx.test_results = attempt_results
         self._record_test_results(ctx, attempt_results)
         ctx.metadata["safe_state"] = "tested"
+        ctx.metadata["test_firmware"] = {
+            "name": info.get("firmware_name", hello.get("firmware_name", "")),
+            "version": info.get("version", hello.get("version", "")),
+            "uid": reported_uid,
+        }
         self._save_extras(ctx)
         return StepOutcome(detail=f"{len(ctx.test_results)} tests passed")
 
     def _test_result_from_raw(self, raw: dict[str, Any]) -> TestResult:
+        profile = self.profile
+        test_id = str(raw.get("test_id", "") or raw.get("id", ""))
+        measured = _optional_float(raw.get("measured_value"))
+        measured_raw = raw.get("measured")
+        if measured is None and isinstance(measured_raw, dict) and measured_raw.get("valid"):
+            measured = _optional_float(measured_raw.get("value"))
+        unit = str(raw.get("measured_unit", "") or "")
+        if not unit and isinstance(measured_raw, dict):
+            unit = str(measured_raw.get("unit", ""))
+        limit_min = _optional_float(raw.get("limit_min"))
+        limit_max = _optional_float(raw.get("limit_max"))
+        result = str(raw.get("result", raw.get("result_name", "FAIL")))
+        reason = str(raw.get("reason", ""))
+        # A profile may tighten or supply the acceptance window.  The device
+        # verdict is authoritative when there is no profile limit.
+        if profile is not None and measured is not None:
+            limit = profile.test_plan.limits.get(test_id)
+            if limit:
+                limit_min = limit.get("min", limit_min)
+                limit_max = limit.get("max", limit_max)
+                if limit_min is not None and measured < limit_min:
+                    result = "FAIL"
+                    reason = reason or f"measured {measured:g}{unit} below {limit_min:g}{unit}"
+                if limit_max is not None and measured > limit_max:
+                    result = "FAIL"
+                    reason = reason or f"measured {measured:g}{unit} above {limit_max:g}{unit}"
         return TestResult(
-            test_id=str(raw.get("test_id", "")),
-            result=str(raw.get("result", "FAIL")),
-            measured_value=_optional_float(raw.get("measured_value")),
-            measured_unit=str(raw.get("measured_unit", "")),
-            limit_min=_optional_float(raw.get("limit_min")),
-            limit_max=_optional_float(raw.get("limit_max")),
-            reason=str(raw.get("reason", "")),
+            test_id=test_id,
+            result=result,
+            measured_value=measured,
+            measured_unit=unit,
+            limit_min=limit_min,
+            limit_max=limit_max,
+            reason=reason,
             operator_answer=(
                 None if raw.get("operator_answer") is None else str(raw.get("operator_answer"))
             ),
@@ -1173,13 +1223,16 @@ class Station:
                 "protection.rdp_lower",
                 f"run {ctx.run_id}: RDP lowered to 0 for rework; chip mass-erased",
             )
+        protection = profile.protection
         production = ProtectionSpec(
-            ndbank=profile.protection.ndbank,
-            ndboot=profile.protection.ndboot,
-            bor_lev=profile.protection.bor_lev,
+            ndbank=protection.ndbank,
+            ndboot=protection.ndboot,
+            bor_lev=protection.bor_lev,
             wrp_bank1=[],
             wrp_bank2=[],
             rdp=0,
+            boot_addr0=protection.boot_addr0,
+            boot_addr1=protection.boot_addr1,
         )
         apply_protection(backend, production)
         backend.mass_erase()
@@ -1193,9 +1246,7 @@ class Station:
         app = profile.app_image
         if app.image is None:
             raise StepFailure("application image was not parsed")
-        address = app.address or app.image.load_address or self._slot_a_address(profile)
-        if not address:
-            address = DEFAULT_SLOT_A
+        address = self._slot_a_address(profile)
         self._program_payload(backend, app.image, address)
         readback = backend.read_memory(address, len(app.image.data))
         if readback != app.image.data:
@@ -1205,13 +1256,20 @@ class Station:
         if zlib.crc32(readback) & 0xFFFFFFFF != app.image.crc32:
             raise StepFailure("application CRC32 mismatch after programming")
         metadata_base = self._metadata_address(profile)
-        metadata_stride = self._metadata_stride(profile)
         records = app.image.to_metadata_records(slot=0, sequence=1)
-        for index, record in enumerate(records):
-            meta_address = metadata_base + index * metadata_stride
+        offsets = app.image.metadata_offsets()
+        # Appendix B: erase the metadata sector once, then program the header
+        # and records append-only.  Erasing per record would destroy the
+        # header written immediately before it.
+        backend.erase_address(metadata_base, layout.META_SIZE)
+        for index, (offset, record) in enumerate(zip(offsets, records, strict=True)):
+            meta_address = metadata_base + offset
             backend.write_memory(meta_address, record)
             if backend.read_memory(meta_address, len(record)) != record:
                 raise StepFailure(f"boot metadata record {index} read-back mismatch")
+        header_magic = backend.read_u32(metadata_base)
+        if header_magic != layout.IMAGE_MAGIC:
+            raise StepFailure("BOOT metadata header magic was not written")
         if rt.bank is not None:
             rt.bank.prepare_app_image(
                 app.sha256,
@@ -1222,6 +1280,11 @@ class Station:
         rt.app_image = app.image
         ctx.image_versions["boot"] = boot_image.version_string() if boot_image else ""
         ctx.image_versions["app"] = app.image.version_string()
+        ctx.metadata["boot_metadata"] = {
+            "address": metadata_base,
+            "verified_crc32": app.image.crc32,
+            "sequence": 1,
+        }
         ctx.metadata["safe_state"] = "app_programmed"
         backend.reset(halt=True)
         return StepOutcome(
@@ -1314,6 +1377,9 @@ class Station:
         except RecordError as exc:
             raise StepFailure(str(exc)) from exc
         try:
+            # A-01/PRV-001: the identity sector is erased once, then the
+            # record is programmed with the flash driver and read back.
+            backend.erase_address(address, layout.IDENTITY_SIZE)
             backend.write_memory(address, blob)
             readback = backend.read_memory(address, len(blob))
             if readback != blob:
@@ -1367,78 +1433,131 @@ class Station:
         self._close_session(rt)
         backend.reset(halt=False)
         session = self._open_session(ctx.fixture, rt)
-        hello = self._wait_hello(session, timeout=self._boot_timeout(profile), abort_event=rt.abort)
-        role = str(hello.get("role", ""))
-        expected_role = str((profile.manifest.get("boot_check") or {}).get("role", "APP"))
-        if expected_role and role.upper() not in (expected_role.upper(), "APP", "DEMO"):
-            raise StepFailure(f"booted firmware reported role {role!r}, expected {expected_role}")
-        if role.upper() == "HWVAL":
+        hello = self._wait_hello(
+            session,
+            timeout=self._boot_timeout(profile),
+            abort_event=rt.abort,
+            expected_role=None,
+        )
+        role = str(hello.get("role", "")).upper()
+        if role == "HWVAL":
             raise StepFailure("unit still boots the HWVAL test firmware, not the product")
-        if str(hello.get("slot", "")).upper() != "A":
-            raise StepFailure(f"firmware reports slot {hello.get('slot')!r}, expected A")
-        if not bool(hello.get("confirmed", False)):
-            raise StepFailure("firmware does not report slot A as confirmed")
-        if str(hello.get("serial", "")) != ctx.serial_number:
-            raise StepFailure(
-                f"booted serial {hello.get('serial')!r} != provisioned {ctx.serial_number!r}"
-            )
-        if hello.get("uid") and str(hello.get("uid")).upper() != ctx.uid.upper():
-            raise StepFailure("booted chip UID does not match the provisioning record")
-        if ctx.mac and hello.get("mac") and str(hello.get("mac")).upper() != ctx.mac.upper():
-            raise StepFailure(f"booted MAC {hello.get('mac')!r} != provisioned {ctx.mac!r}")
-        reported_name = str(hello.get("firmware", "")).lower()
-        expected_name = (
-            (profile.app_image.image.name or profile.image_path("app").stem).lower()
-            if profile.app_image.image is not None
-            else ""
-        )
-        if (
-            expected_name
-            and reported_name
-            and expected_name not in reported_name
-            and reported_name not in expected_name
-        ):
-            raise StepFailure(
-                f"booted firmware {hello.get('firmware')!r} != expected {expected_name!r}"
-            )
-        expected_version = (
-            profile.app_image.image.version if profile.app_image.image is not None else 0
-        )
-        reported_version = hello.get("version")
-        if (
-            expected_version
-            and isinstance(reported_version, int)
-            and reported_version
-            not in (
-                expected_version,
-                0,
-            )
-        ):
-            raise StepFailure(
-                f"booted firmware version 0x{reported_version:08X} != 0x{expected_version:08X}"
-            )
+        if role in ("BOOTLOADER", "BOOT"):
+            raise StepFailure("BOOT did not start an application")
+        expected_role = str((profile.manifest.get("boot_check") or {}).get("role", "APP"))
+        if expected_role and role not in (expected_role.upper(), "APP", "DEMO"):
+            raise StepFailure(f"booted firmware reported role {role!r}, expected {expected_role}")
+        status: dict[str, Any] = {}
+        if role in ("DEMO", "APP"):
+            try:
+                status = session.status()
+            except HwLinkError as exc:
+                raise StepFailure(f"application did not answer GetStatus: {exc}") from exc
+            slot_name = str(status.get("slot_name", "")).upper()
+            trial_name = str(status.get("trial_name", "")).upper()
+            if slot_name != "A":
+                raise StepFailure(f"application reports slot {slot_name or 'UNKNOWN'}, expected A")
+            if trial_name != "CONFIRMED":
+                raise StepFailure(
+                    f"application reports trial state {trial_name or 'UNKNOWN'}, expected CONFIRMED"
+                )
+            reported_uid = int(status.get("uid", 0))
+            if reported_uid and reported_uid != _uid64(ctx.uid):
+                raise StepFailure(f"booted chip UID {reported_uid:#x} does not match {_uid64(ctx.uid):#x}")
         self._close_session(rt)
+        # B-10/B-14: read the identity record back over SWD and compare it to
+        # the serial/MAC allocated for this run.  This runs before RDP 1.
+        address = provisioning_address(profile)
+        try:
+            raw = backend.read_memory(address, 16384)
+            record = parse_record(raw, expect_uid=bytes.fromhex(ctx.uid))
+        except (RecordError, OpenOcdError) as exc:
+            raise StepFailure(f"identity readback failed: {exc}") from exc
+        if record.serial_number != ctx.serial_number:
+            raise StepFailure(
+                f"identity serial {record.serial_number!r} != provisioned {ctx.serial_number!r}"
+            )
+        if ctx.mac and record.mac.upper() != ctx.mac.upper():
+            raise StepFailure(f"identity MAC {record.mac!r} != provisioned {ctx.mac!r}")
+        # Confirm slot A is marked verified/activated/confirmed in metadata.
+        meta = backend.read_memory(layout.META_A_BASE, layout.META_HEADER_SIZE + 0x60)
+        magic = int.from_bytes(meta[:4], "little") if len(meta) >= 4 else 0
+        if magic != layout.IMAGE_MAGIC:
+            raise StepFailure("BOOT metadata header is missing after programming")
+        for offset, expected_magic, label in (
+            (layout.META_VERIFIED_OFFSET, layout.META_VERIFIED_MAGIC, "VERIFIED"),
+            (layout.META_ACTIVATED_OFFSET, layout.META_ACTIVATED_MAGIC, "ACTIVATED"),
+            (layout.META_CONFIRMED_OFFSET, layout.META_CONFIRMED_MAGIC, "CONFIRMED"),
+        ):
+            rec_magic, _value, present = parse_metadata_record(meta[offset : offset + layout.META_RECORD_SIZE])
+            if not present or rec_magic != expected_magic:
+                raise StepFailure(f"BOOT metadata {label} record is missing or invalid")
+        expected_version = (
+            "0.0.0"
+            if profile.app_image.image is None
+            else profile.app_image.image.version_string()
+        )
+        reported_version = str(status.get("version", hello.get("version", "")))
+        if expected_version not in ("", "0.0.0") and reported_version not in (
+            "",
+            expected_version,
+        ):
+            raise StepFailure(
+                f"booted firmware version {reported_version!r} != expected {expected_version!r}"
+            )
         ctx.metadata["safe_state"] = "boot_checked"
+        ctx.metadata["identity_readback"] = {
+            "address": address,
+            "revision": record.revision,
+            "serial": record.serial_number,
+            "mac": record.mac,
+            "uid": record.uid_hex,
+        }
+        self._save_extras(ctx)
         return StepOutcome(
             detail=(
                 f"role={role} slot=A confirmed serial={ctx.serial_number} "
-                f"fw={hello.get('firmware', '')}"
+                f"fw={reported_version} identity@{address:#010x}"
             )
         )
 
     def _step_protect(self, ctx: RunContext, rt: RunRuntime) -> StepOutcome:
         profile = self.require_profile()
         backend = self._backend(rt)
-        if profile.protection.rdp == 2:
+        spec = profile.protection
+        if spec.rdp == 2:
             raise StepFailure("RDP level 2 is never allowed")
-        values = apply_protection(backend, profile.protection)
+        # E-01: every SWD readback happens before RDP 1.  Apply WRP/BOR first
+        # (RDP still 0), read it back, then lower the debugger last.
+        if spec.rdp == 1:
+            before = ProtectionSpec(
+                ndbank=spec.ndbank,
+                ndboot=spec.ndboot,
+                bor_lev=spec.bor_lev,
+                wrp_bank1=spec.wrp_bank1,
+                wrp_bank2=spec.wrp_bank2,
+                rdp=0,
+                boot_addr0=spec.boot_addr0,
+                boot_addr1=spec.boot_addr1,
+            )
+            apply_protection(backend, before)
+        values = apply_protection(backend, spec)
+        # Power-cycle equivalent: reset, re-examine and read the options once
+        # more so a write that only landed in a register is caught.
+        backend.reset(halt=True)
+        actual = backend.read_option_bytes()
+        if actual.rdp != spec.rdp:
+            raise StepFailure(f"RDP read-back {actual.rdp} != {spec.rdp} after reset")
+        if actual.rdp == 2:
+            raise StepFailure("chip unexpectedly reports RDP level 2")
         ctx.option_bytes = values
         ctx.metadata["safe_state"] = "protected"
+        ctx.metadata["protection_readback"] = option_bytes_to_dict(actual)
         self._save_extras(ctx)
         self.db.audit(
             ctx.operator,
             "protection.apply",
-            f"run {ctx.run_id}: {profile.protection.as_dict()}",
+            f"run {ctx.run_id}: {spec.as_dict()}",
         )
         return StepOutcome(detail=str(values))
 
@@ -1517,7 +1636,7 @@ class Station:
         return rt.backend
 
     def _open_session(self, fixture: str, rt: RunRuntime) -> HwLinkSession:
-        transport: Transport
+        transport: Any
         if self.simulation and self.simulator is not None and rt.bank is not None:
             transport = SimulatedTransport(rt.bank.device)
         else:
@@ -1547,6 +1666,7 @@ class Station:
         *,
         timeout: float,
         abort_event: threading.Event | None = None,
+        expected_role: str | int | None = None,
     ) -> dict[str, Any]:
         deadline = time.monotonic() + timeout
         last: Exception | None = None
@@ -1554,9 +1674,15 @@ class Station:
             if abort_event is not None and abort_event.is_set():
                 raise AbortedError("aborted by operator")
             try:
-                return session.hello(timeout=min(2.0, max(0.2, deadline - time.monotonic())))
+                return session.connect(
+                    expected_role,
+                    timeout=min(3.0, max(0.5, deadline - time.monotonic())),
+                )
             except HwLinkError as exc:
                 last = exc
+                if "expected" in str(exc) and expected_role is not None:
+                    # Wrong firmware is a real failure, not a transient one.
+                    raise StepFailure(str(exc)) from exc
                 time.sleep(0.2)
         raise StepFailure(f"firmware did not answer HWLINK hello: {last}")
 
@@ -1616,25 +1742,29 @@ class Station:
                 name.unlink()
 
     def _slot_a_address(self, profile: ProductProfile) -> int:
-        layout = profile.manifest.get("layout") or {}
-        if isinstance(layout, dict) and layout.get("slot_a"):
-            return int(str(layout["slot_a"]), 0)
+        raw = profile.manifest.get("layout") or {}
+        if isinstance(raw, dict) and raw.get("slot_a"):
+            value = int(str(raw["slot_a"]), 0)
+            if value != layout.SLOT_A_BASE:
+                raise StepFailure(
+                    f"profile slot A {value:#010x} != layout {layout.SLOT_A_BASE:#010x}"
+                )
         app = profile.images.get("app")
-        if app is not None and app.address:
-            return app.address
-        return DEFAULT_SLOT_A
+        if app is not None and app.address not in (None, layout.SLOT_A_BASE):
+            raise StepFailure(
+                f"profile app address {app.address:#010x} != layout {layout.SLOT_A_BASE:#010x}"
+            )
+        return layout.SLOT_A_BASE
 
     def _metadata_address(self, profile: ProductProfile) -> int:
-        meta = profile.manifest.get("boot_metadata") or profile.manifest.get("metadata") or {}
-        if isinstance(meta, dict) and meta.get("address"):
-            return int(str(meta["address"]), 0)
-        return DEFAULT_METADATA_BASE
-
-    def _metadata_stride(self, profile: ProductProfile) -> int:
-        meta = profile.manifest.get("boot_metadata") or profile.manifest.get("metadata") or {}
-        if isinstance(meta, dict) and meta.get("stride"):
-            return int(str(meta["stride"]), 0)
-        return METADATA_STRIDE
+        raw = profile.manifest.get("boot_metadata") or profile.manifest.get("metadata") or {}
+        if isinstance(raw, dict) and raw.get("address"):
+            value = int(str(raw["address"]), 0)
+            if value != layout.META_A_BASE:
+                raise StepFailure(
+                    f"profile metadata {value:#010x} != layout {layout.META_A_BASE:#010x}"
+                )
+        return layout.META_A_BASE
 
     # -- self test and probes ----------------------------------------
     def detect_probes(self) -> list[str]:
@@ -1803,6 +1933,22 @@ class Station:
         for driver in self._power.values():
             with contextlib.suppress(Exception):
                 driver.close()
+
+
+def _uid_word_hex(uid_hex: str) -> str:
+    """Render the UID the way the firmware's DeviceInfo does: word0..word2."""
+    raw = bytes.fromhex(uid_hex)
+    if len(raw) < 12:
+        return uid_hex.upper()
+    return "".join(f"{int.from_bytes(raw[i : i + 4], 'little'):08X}" for i in (0, 4, 8))
+
+
+def _uid64(uid_hex: str) -> int:
+    """Match the firmware's UID64: UID word0 << 32 | UID word1."""
+    raw = bytes.fromhex(uid_hex)
+    if len(raw) < 8:
+        return 0
+    return (int.from_bytes(raw[0:4], "little") << 32) | int.from_bytes(raw[4:8], "little")
 
 
 def _optional_float(value: object) -> float | None:

@@ -25,6 +25,7 @@ from typing import Any
 
 import yaml
 
+from hostcore import layout
 from hostcore.images import FirmwareImage, ImageError, parse_image, sha256_file
 from hwval_factory import __version__
 
@@ -506,6 +507,53 @@ def _parse_label(raw: dict[str, Any], profile_dir: Path) -> LabelSpec:
     )
 
 
+def validate_manifest_layout(raw: dict[str, Any]) -> None:
+    """Reject any profile address outside the one shared flash layout (B-08)."""
+    layout_raw = raw.get("layout") or {}
+    if isinstance(layout_raw, dict) and layout_raw.get("slot_a"):
+        value = int(str(layout_raw["slot_a"]), 0)
+        if value != layout.SLOT_A_BASE:
+            raise ProfileError(
+                f"layout.slot_a {value:#010x} is not {layout.SLOT_A_BASE:#010x}"
+            )
+    meta = raw.get("boot_metadata") or raw.get("metadata") or {}
+    if isinstance(meta, dict):
+        if meta.get("address"):
+            value = int(str(meta["address"]), 0)
+            if value != layout.META_A_BASE:
+                raise ProfileError(
+                    f"boot_metadata.address {value:#010x} is not {layout.META_A_BASE:#010x}"
+                )
+        if meta.get("stride"):
+            raise ProfileError(
+                "boot_metadata.stride is obsolete; Appendix B records use fixed offsets"
+            )
+    provisioning = raw.get("provisioning") or {}
+    if isinstance(provisioning, dict) and provisioning.get("address"):
+        address = int(str(provisioning["address"]), 0)
+        if address not in (layout.IDENTITY_BASE, layout.IDENTITY_BASE_SWAPPED):
+            raise ProfileError(
+                f"provisioning.address {address:#010x} is outside the identity area"
+            )
+        swapped = provisioning.get("swapped_address")
+        if swapped and int(str(swapped), 0) != layout.IDENTITY_BASE_SWAPPED:
+            raise ProfileError(
+                f"provisioning.swapped_address must be {layout.IDENTITY_BASE_SWAPPED:#010x}"
+            )
+    if isinstance(meta, dict) and meta.get("address") is None:
+        raise ProfileError("boot_metadata.address is required")
+    protection = raw.get("protection") or {}
+    if isinstance(protection, dict) and protection:
+        if int(protection.get("nDBANK", 0)) != 0:
+            raise ProfileError("product profiles require nDBANK = 0 (dual-bank)")
+        if int(protection.get("nDBOOT", 0)) != 1:
+            raise ProfileError("product profiles require nDBOOT = 1 (dual boot disabled)")
+        if protection.get("BOOT_ADD0") is not None and int(protection["BOOT_ADD0"]) != 0x0080:
+            raise ProfileError("product profiles require BOOT_ADD0 = 0x0080")
+        if int(protection.get("rdp", 0)) == 2:
+            raise ProfileError("RDP level 2 is permanent and is never allowed")
+
+
 def _load_manifest(profile_dir: Path) -> dict[str, Any]:
     manifest_path = profile_dir / "manifest.yaml"
     if not manifest_path.is_file():
@@ -551,6 +599,7 @@ def load_profile(
 
     try:
         raw = _load_manifest(profile_dir)
+        validate_manifest_layout(raw)
         profile_id = str(_require(raw, "profile"))
         version = str(_require(raw, "version"))
         product = str(_require(raw, "product"))
@@ -731,8 +780,23 @@ def manifest_for_directory(
             "by": author,
             "at": date.today().isoformat(),
         },
-        "parts": sections.pop("parts", {"dev_id": 0x451, "rev_id": [0x1001], "flash_kb": 2048}),
+        "parts": sections.pop(
+            "parts", {"dev_id": 0x451, "rev_id": [0x1001, 0x1003], "flash_kb": 2048}
+        ),
         "images": images,
+        "layout": sections.pop("layout", {"slot_a": f"0x{layout.SLOT_A_BASE:08X}"}),
+        "boot_metadata": sections.pop(
+            "boot_metadata", {"address": f"0x{layout.META_A_BASE:08X}"}
+        ),
+        "provisioning": sections.pop(
+            "provisioning",
+            {
+                "address": f"0x{layout.IDENTITY_BASE:08X}",
+                "swapped_address": f"0x{layout.IDENTITY_BASE_SWAPPED:08X}",
+            },
+        ),
+        "boot_check": sections.pop("boot_check", {"role": "APP", "timeout_s": 15}),
+        "hello_timeout_s": sections.pop("hello_timeout_s", 10),
         "test_plan": sections.pop("test_plan", {"tests": [], "allow_operator": True}),
         "calibration": sections.pop("calibration", []),
         "identity": sections.pop(
@@ -746,9 +810,12 @@ def manifest_for_directory(
             "protection",
             {
                 "nDBANK": 0,
+                "nDBOOT": 1,
                 "BOR_LEV": 3,
                 "wrp_sectors": {"bank1": [0, 1], "bank2": [1]},
                 "rdp": 0,
+                "BOOT_ADD0": 0x0080,
+                "BOOT_ADD1": 0x0040,
             },
         ),
         "label": sections.pop(

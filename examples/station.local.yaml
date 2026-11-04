@@ -1,0 +1,44 @@
+# Local hardware station.  Put this file outside the repository on a real PC.
+# `probe_serial: auto` is filled from the ST-LINKs found by pyserial at load
+# time; run `hwval-factory --detect` to see what is plugged in.
+station:
+  id: STN-LOCAL
+  name: HWVAL Factory local station
+  line: LAB
+
+simulation: false
+profiles_dir: ./profiles
+database: ./station-data/local.sqlite
+labels_dir: ./station-data/labels
+certificates_dir: ./station-data/certificates
+
+fixtures:
+  - name: F1
+    probe_serial: auto       # or the exact ST-LINK serial printed by --detect
+    serial_port: ""          # empty = locate the VCP by the same ST-LINK serial
+    telnet_port: 4444
+    position: 0
+    power: { driver: none }
+
+printer:
+  enabled: false
+  output_dir: ./station-data/labels
+  dpi: 203
+
+mes:
+  enabled: false
+
+openocd:
+  binary: openocd
+  interface_cfg: interface/stlink.cfg
+  target_cfg: target/stm32f7x.cfg
+  telnet_base_port: 4444
+
+security:
+  session_timeout_minutes: 30
+  retest_after_failures: 2
+  self_test_interval_hours: 24
+  maintenance_count: 10000
+  require_profile_signature: false
+
+kiosk: false

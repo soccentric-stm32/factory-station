@@ -30,9 +30,34 @@ from hwval_factory.profile import (
 )
 
 
+def _workspace_sources() -> dict[str, Path]:
+    repo = Path(__file__).resolve().parents[2]
+    workspace = repo.parent
+    return {
+        "test": workspace / "soccentric-stm32-validation-firmware" / "build" / "hwval.elf",
+        "boot": workspace / "soccentric-stm32-bootloader" / "build" / "boot.hex",
+        "app": workspace / "soccentric-stm32-application" / "build" / "demo.img",
+    }
+
+
 def _build(args: argparse.Namespace) -> int:
     root = Path(args.directory)
     manifest_path = root / "manifest.yaml"
+    if args.from_workspace:
+        root.mkdir(parents=True, exist_ok=True)
+        names = {
+            "test": "hwval-1.0.0.elf",
+            "boot": "boot-1.0.0.hex",
+            "app": "app-0.1.0.img",
+        }
+        for role, source in _workspace_sources().items():
+            if not source.is_file():
+                print(f"error: workspace artefact not found: {source}", file=sys.stderr)
+                return 2
+            shutil.copy2(source, root / names[role])
+        args.test = names["test"]
+        args.boot = names["boot"]
+        args.app = names["app"]
     images = {
         "test": args.test,
         "boot": args.boot,
@@ -167,6 +192,11 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--test", default="")
     build.add_argument("--boot", default="")
     build.add_argument("--app", default="")
+    build.add_argument(
+        "--from-workspace",
+        action="store_true",
+        help="copy the built BOOT, HWVAL and application images from sibling repos",
+    )
     build.set_defaults(func=_build)
 
     sign = sub.add_parser("sign")

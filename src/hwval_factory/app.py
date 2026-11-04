@@ -15,7 +15,7 @@ from hwval_factory.config import ConfigError, default_station, load_station_conf
 from hwval_factory.database import Database
 from hwval_factory.profile import ProductProfile, ProfileError, list_profiles, load_profile
 from hwval_factory.station import Station
-from hwval_factory.ui.login import LoginDialog
+from hwval_factory.ui.login import LoginDialog, PinChangeDialog
 from hwval_factory.ui.main_window import StationWindow
 
 
@@ -77,8 +77,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.station:
             config = load_station_config(args.station)
-        else:
+        elif args.simulate:
             config = default_station(simulated=True, fixture_count=args.fixtures)
+        else:
+            raise ConfigError(
+                "no station configuration was supplied. Pass --station "
+                "examples/station.local.yaml (or your production station file), "
+                "or --simulate for the fixture simulator."
+            )
         simulation = config.simulation
         if args.simulate:
             simulation = True
@@ -134,6 +140,21 @@ def main(argv: list[str] | None = None) -> int:
         station.close()
         db.close()
         return 1
+    # I-01: production mode must not run with the shipped admin/1234 PIN.
+    if not simulation and session.username == "admin" and auth.default_admin_pin_in_use():
+        QMessageBox.warning(
+            None,
+            APP_NAME,
+            "The default administrator PIN (1234) is still active.\n"
+            "Change it before production use.",
+        )
+        pin_dialog = PinChangeDialog(None)
+        if pin_dialog.exec() != QDialog.DialogCode.Accepted or not pin_dialog.value():
+            station.close()
+            db.close()
+            return 2
+        auth.set_pin("admin", pin_dialog.value())
+        db.audit("admin", "user.pin", "forced default-PIN change before production")
     window = StationWindow(config, db, auth, station, profile, kiosk=args.kiosk)
     window.show()
     app.aboutToQuit.connect(station.close)

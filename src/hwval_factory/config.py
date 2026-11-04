@@ -180,6 +180,59 @@ def _as_int(value: object, default: int) -> int:
         return default
 
 
+def detect_stlink_serials() -> list[str]:
+    """Return the serial numbers of connected ST-LINK probes."""
+    probes: set[str] = set()
+    try:
+        from serial.tools import list_ports
+
+        for info in list_ports.comports():
+            haystack = " ".join(
+                str(x) for x in (info.serial_number, info.hwid, info.description)
+            ).lower()
+            if ("st-link" in haystack or "stlink" in haystack) and info.serial_number:
+                probes.add(str(info.serial_number))
+    except Exception:
+        pass
+    return sorted(probes)
+
+
+def detect_vcp_ports() -> list[dict[str, str]]:
+    """Return serial ports that look like an ST-LINK virtual COM port."""
+    result: list[dict[str, str]] = []
+    try:
+        from serial.tools import list_ports
+
+        for info in list_ports.comports():
+            haystack = " ".join(
+                str(x) for x in (info.serial_number, info.hwid, info.description)
+            ).lower()
+            if "st-link" in haystack or "stlink" in haystack or "stmicroelectronics" in haystack:
+                result.append(
+                    {
+                        "device": str(info.device),
+                        "serial": str(info.serial_number or ""),
+                        "description": str(info.description or ""),
+                    }
+                )
+    except Exception:
+        pass
+    return result
+
+
+def _auto_assign_probes(fixtures: list[FixtureConfig]) -> None:
+    missing = [fixture for fixture in fixtures if fixture.probe_serial in ("", "auto", "*")]
+    if not missing:
+        return
+    probes = detect_stlink_serials()
+    if not probes:
+        return
+    used = {fixture.probe_serial for fixture in fixtures if fixture.probe_serial not in ("", "auto", "*")}
+    available = [probe for probe in probes if probe not in used]
+    for fixture, probe in zip(missing, available, strict=False):
+        fixture.probe_serial = probe
+
+
 def _fixture_from_dict(raw: dict[str, Any], index: int, base_port: int) -> FixtureConfig:
     return FixtureConfig(
         name=str(raw.get("name") or f"F{index + 1}"),
@@ -225,6 +278,8 @@ def load_station_config(path: str | Path | None) -> StationConfig:
         for index, f in enumerate(fixture_raw)
         if isinstance(f, dict)
     ]
+    if not _as_bool(raw.get("simulation"), False):
+        _auto_assign_probes(fixtures)
     printer_raw = raw.get("printer") or {}
     mes_raw = raw.get("mes") or {}
     security = raw.get("security") or {}

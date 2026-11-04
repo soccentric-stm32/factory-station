@@ -7,7 +7,7 @@ The record lives at bank 2, sector 1 of the product flash (PRV-001):
 
 Layout, little endian::
 
-    magic       uint32   0x50525631 ("1VRP")
+    magic       uint32   0x31565250 ("PRV1" little-endian)
     format      uint16   1
     revision    uint16   +1 on every rework
     length      uint32   TLV area length
@@ -24,7 +24,7 @@ import time
 import zlib
 from dataclasses import dataclass, field
 
-RECORD_MAGIC = 0x50525631
+RECORD_MAGIC = 0x31565250
 RECORD_FORMAT = 1
 HEADER = struct.Struct("<IHHII12sI")
 PROVISIONING_SECTOR = 0x08104000

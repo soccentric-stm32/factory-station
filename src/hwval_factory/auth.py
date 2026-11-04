@@ -102,6 +102,13 @@ class AuthService:
         self.db.audit("system", "user.create", "default administrator created")
         return True
 
+    def default_admin_pin_in_use(self) -> bool:
+        """True while the shipped admin/1234 credential still works."""
+        row = self.db.user("admin")
+        if row is None or not bool(row["active"]):
+            return False
+        return verify_pin("1234", str(row["pin_hash"]))
+
     def add_user(
         self,
         username: str,
