@@ -1,219 +1,53 @@
 # factory-station
 
-**HWVAL Factory**: the end-of-line test and provisioning station for
-STM32F767ZI boards. A cross-platform PySide6 desktop app (Windows and Linux on
-the line), the production counterpart of the HWVAL Studio validation GUI.
+HWVAL Factory is the end-of-line test and provisioning station for STM32F767ZI boards, a cross-platform PySide6 desktop application for the production line. With one operator action per board it identifies the chip over SWD, runs the end-of-line test plan with the HWVAL firmware, programs the bootloader and application, writes a per-unit identity record, checks the product boots correctly, applies flash protection, prints the label and records everything for traceability. Up to eight fixtures run in parallel per PC, and a full simulator lets you try every step without hardware.
 
-In one operator action per board it identifies the chip over SWD, runs the EOL
-test plan with the HWVAL firmware, programs the bootloader and the application
-into the A/B flash layout, writes a per-unit provisioning record (serial
-number, MAC, hardware revision, calibration), checks that the product boots
-with the right identity, applies flash protection, prints the label and records
-everything for traceability. Up to 8 fixtures run in parallel per PC.
+## Features
 
-| | |
-|---|---|
-| Requirements | [SRS.md](SRS.md) — SRS-FACTORY-F767 (v0.1 draft) |
-| Status | **Hardware contract implemented** — v0.1.0, real HWLINK/IBWH/layout, identity readers in C/Rust/Zephyr; simulator and pytest suite included |
-| Stack | Python 3.11+, PySide6, pyserial, FlatBuffers (HWLINK), OpenOCD, SQLite, ZPL label printers |
-| Shared core | `src/hostcore` — the in-tree implementation of the planned `soccentric-stm32-hostcore` package |
-| Tests | `make test` — HWLINK frames, IBWH images, Appendix B metadata, identity vectors, option bytes, serial/MAC and full simulator runs |
+- One-action end-of-line flow from barcode scan to printed label
+- Up to eight fixtures in parallel, each with its own worker and state machine
+- Chip identification over SWD (device ID, revision, UID, option bytes)
+- End-of-line test plan run through HWVAL over HWLINK with operator prompts
+- Optional calibration step
+- Programs bootloader, application and metadata over SWD or through the bootloader
+- Per-unit provisioning record with serial number, MAC, revision and calibration
+- Atomic serial and MAC allocation with Luhn check digits and pool warnings
+- Boot check of identity and confirmed slot
+- BOR, write and readout protection with read-back; RDP level 2 always rejected
+- Versioned, SHA-256 pinned and Ed25519-signed production profiles
+- ZPL label printing over TCP with preview and PDF/PNG fallback
+- SQLite traceability with search, unit history, CSV/JSON export and PDF certificates
+- Optional queued HTTPS uplink to an MES
+- Badge or PIN login with operator, supervisor, engineer and administrator roles
+- Yield dashboard with Pareto chart and cycle times
+- Golden-board self-test that blocks production when due
+- Simulator of the STM32F767ZI flash, protection and HWLINK device stack
+- Headless CLI with pass/fail/error exit codes
+- Packaging for PyInstaller, .deb, AppImage and Windows MSI
 
-## Quick start (no hardware)
-
-The simulator needs no ST-LINK, OpenOCD or printer.
+## Build and run
 
 ```bash
 python -m pip install -e .
-hwval-factory-ui --station examples/station.simulator.yaml
-# or headless, one unit:
-hwval-factory --cli --station examples/station.simulator.yaml \
-  --fixture F1 --pcb-serial PCB-0001 --json
+hwval-factory-ui --simulate --fixtures 4   # full flow with four simulated fixtures
+make test                                  # run the test suite
 ```
-
-The default administrator is `admin` / `1234`; change it in
-**Tools → Change PIN** before production use. The demo profile is
-`examples/profile-sc767-demo` with small, valid IBWH/HEX/ELF test images.
-
-Run the complete EOL flow with four simulated fixtures:
-
-```bash
-hwval-factory-ui --simulate --fixtures 4
-```
-
-## EOL flow (default profile)
-
-| # | Step | Over |
-|---|---|---|
-| 1 | Scan board and work order | Barcode scanner |
-| 2 | Identify chip (DEV_ID, REV_ID, UID, option bytes) | SWD |
-| 3 | Bench configuration, program the HWVAL test image | SWD |
-| 4 | Run the EOL test plan, with operator prompts | HWLINK |
-| 5 | Compute calibration values (optional) | — |
-| 6 | Product configuration, program BOOT + application + metadata | SWD |
-| 7 | Allocate serial number and MAC, write the provisioning record | SWD |
-| 8 | Boot check: identity and confirmed slot | HWLINK |
-| 9 | Apply BOR, write and readout protection (never RDP 2) | SWD |
-| 10 | Print the label | ZPL |
-| 11 | Record the run, queue it for the MES | SQLite / HTTPS |
-
-## What is implemented
-
-* **Fixture engine** — one worker thread, OpenOCD process, HWLINK session and
-  state machine per fixture; independent start/abort; step timings, retries,
-  safe-state recording and ABORTED/INCOMPLETE handling.
-* **Profiles** — versioned directories or archives, SHA-256 pinned images,
-  Ed25519 signatures, EOL test plan and limits, calibration rules, identity
-  rules, option-byte settings and ZPL templates. `hwval-profile
-  build|sign|verify|archive|keygen` is the engineer tool.
-* **HWLINK** — the real COBS + CRC-32 + FlatBuffers protocol from the
-  firmware (`Hello`, `GetDeviceInfo`, `ListTests`, `Run` events,
-  `OperatorPrompt`/`Answer`, `GetStatus`, `GetBootInfo`), with `mode link`
-  entry and request retries. The old JSON protocol is gone.
-* **Images and metadata** — IBWH 256-byte header parsing/validation (magic,
-  size, type, load/entry, header CRC, image CRC, SP/reset vector), Intel HEX,
-  ELF and raw BIN support, and the Appendix B `VERIFIED`/`ACTIVATED`/
-  `CONFIRMED` records at their fixed offsets.
-* **Two application load paths** — `app_load: swd` writes the payload and
-  metadata over SWD; `app_load: boot` uploads the IBWH image over HWLINK and
-  lets BOOT erase, verify and activate it (`UpdateBegin/Data/End/Activate`).
-* **Provisioning record** — `PRV1` header/TLV format with CRC32, chip
-  UID binding, mandatory identity fields, MAC, calibration, customer/order and
-  custom key/value fields; read-back is compared byte for byte.
-* **Serial and MAC allocation** — atomic SQLite transactions, Luhn check
-  digits, configurable ranges/pools, OUI/imported-CSV/UID-derived local MAC
-  sources, 90 % warning, exhaustion stop, REWORK reuse by chip UID.
-* **Protection** — nDBANK/nDBOOT/BOR/WRP/RDP, read-back comparison after a
-  reset, WRP/BOR applied before RDP, RDP level 2 rejected everywhere,
-  supervisor-approved RDP lowering for rework.
-* **Labels** — ZPL II over TCP 9100 or a local queue, preview, test print,
-  PDF/PNG fallback with “label pending”, supervisor reprints from stored data.
-* **Traceability** — WAL SQLite schema from Appendix D plus run extras, search
-  by any identity field, unit history, CSV/JSON export, per-unit PDF
-  certificate, append-only records, audit log, optional queued HTTPS MES
-  uplink with retry/back-off and a visible queue length.
-* **Station** — YAML configuration for 1–8 fixtures, ST-LINK detection and VCP
-  matching by probe serial, pluggable power control, lid/board-present inputs,
-  insertion/maintenance counters, and a golden-board self-test that blocks
-  production when due.
-* **UI** — large fixture tiles (PASS/FAIL/icon/word/colour/sound), live fixture
-  detail, yield dashboard with Pareto and cycle times, unit history, HID and
-  serial scanner routing without focus, F1–F8 shortcuts, kiosk mode and the
-  full menu set.
-* **Access** — badge or ID/PIN login, operator/supervisor/engineer/administrator
-  roles, salted scrypt PINs, idle session lock.
-* **Simulator** — simulated STM32F767ZI chip with the real sector map,
-  erase-before-write, WRP/RDP effects and nDBANK mass erase; the same real
-  HWLINK device stack, injectable test failures, operator prompts and USB
-  faults. The host has no `if simulation` branch in the protocol path.
-* **Packaging** — PyInstaller spec, Linux `.deb`/AppImage scripts and a Windows
-  MSI (WiX) script in `packaging/`.
-
-## Layout
-
-```
-src/hostcore/            shared HWLINK, OpenOCD, image, theme/widget code
-src/hwval_factory/       station domain, persistence, UI and CLIs
-  ui/                    station, dashboard, history, supervisor dialogs
-examples/                simulator and production station configuration,
-                         demo profile with pinned placeholder images
-docs/                    operator, supervisor and engineering guides
-packaging/               PyInstaller + .deb/AppImage/MSI packaging
-```
-
-## CLI
-
-```bash
-# one unit, exit code 0 PASS / 1 FAIL / 2 station error
-hwval-factory --cli --simulate --profile examples/profile-sc767-demo --fixture F1 \
-  --pcb-serial PCB-0001 --operator alice --json
-
-# first-run station file, hardware discovery and bring-up
-hwval-factory --init-station station.local.yaml
-hwval-factory --detect
-hwval-factory --station examples/station.local.yaml --probe --fixture F1
-
-# simulator scenario and an imported MAC pool
-hwval-factory --cli --simulate --scenario examples/scenario-yield-95.yaml ...
-hwval-factory --station station.local.yaml --import-macs macs.csv --work-order WO-1
-
-# station utilities
-hwval-factory --list-profiles --profiles-dir examples
-hwval-factory --self-test --station examples/station.simulator.yaml
-hwval-factory --export csv --work-order WO-1 --output runs.csv
-hwval-factory --certificate 42 --output certificate.pdf
-hwval-factory --reprint 42 --operator supervisor
-```
-
-## Real hardware checklist
-
-1. Install OpenOCD ≥ 0.12 and the ST-LINK udev rules (Linux:
-   `packaging/udev/99-stlink.rules`; see `packaging/README.md`).
-2. Copy `examples/station.local.yaml` or `examples/station.real.example.yaml`
-   outside the repository. `probe_serial: auto` is filled from the connected
-   ST-LINKs; `hwval-factory --detect` prints probes and VCP ports.
-3. Copy a released profile (for example `profiles/sc767-1.0.0/`) into the
-   station profile store. Use `require_profile_signature: true` and a trusted
-   Ed25519 public key when signatures are mandatory.
-4. Run `hwval-factory --station … --probe --fixture F1` for a step-by-step SWD
-   and VCP bring-up, then **Station → Self-test…** with a golden board.
-5. Verify the option-byte write on the reference board (OPEN-B05). The host now
-   uses `stm32f2x options_write 0 <OPTCR> <BOOT_ADD0> <BOOT_ADD1>` with a
-   register fallback, but the bench result must still be recorded.
-
-## Verified where
-
-| Area | Simulator | Real hardware |
-|---|---|---|
-| HWLINK framing/messages, `mode link` | yes | needs a HWVAL/BOOT/APP board |
-| IBWH parsing and metadata writing | yes | needs a board |
-| Option bytes, WRP/BOR/RDP order | yes (model) | bench confirmation required |
-| Identity/TLV record and readback | yes | needs a board |
-| Serial/MAC allocation, labels, DB, MES queue | yes | printer/MES endpoints required |
-
-The simulator is a contract test, not a substitute for the hardware checklist.
-
-See [docs/hardware-verification.md](docs/hardware-verification.md) for the
-recorded NUCLEO-F767ZI bench results, [docs/engineering-guide.md](docs/engineering-guide.md) for profile and
-station details, [docs/operator-guide.md](docs/operator-guide.md) for the line
-procedure, [docs/recovery-guide.md](docs/recovery-guide.md) for RDP 1,
-option-byte, BOOT-no-app and connect-under-reset recovery, and
-[docs/release.md](docs/release.md) for the release process.
 
 ## Related projects
 
-| Repository | Role |
-|---|---|
-| [validation-firmware](https://github.com/soccentric-stm32/validation-firmware) | HWVAL hardware validation firmware (the EOL test image) |
-| [bootloader](https://github.com/soccentric-stm32/bootloader) | A/B bootloader (UART update, CRC32, trial boot and rollback) |
-| [app-c-freertos](https://github.com/soccentric-stm32/app-c-freertos) | FreeRTOS demo application in C |
-| [app-rust-freertos](https://github.com/soccentric-stm32/app-rust-freertos) | The same demo in Rust (Embassy) |
-| [app-c-zephyr](https://github.com/soccentric-stm32/app-c-zephyr) | The same demo on Zephyr RTOS |
-| [app-rust-zephyr](https://github.com/soccentric-stm32/app-rust-zephyr) | The same demo in Rust on Zephyr RTOS |
-| [validation-gui](https://github.com/soccentric-stm32/validation-gui) | HWVAL Studio: engineering GUI for tests, updates and SWD flashing |
-| [factory-station](https://github.com/soccentric-stm32/factory-station) | HWVAL Factory: end-of-line test and provisioning (this repository) |
-
-## CI and releases
-
-The [Jenkinsfile](Jenkinsfile) runs the build and checks, then **Package**
-builds `dist/factory-station-<version>.tar.gz` with the outputs, a `manifest.json`
-(version, commit, build) and `SHA256SUMS`, and archives `dist/`. For a tag
-`v<version>`, **Release** publishes `dist/` as a GitHub release
-(`ci/github_release.py`, Jenkins credential `github-release-token`); the tag
-must match the version the build reports (`ci/version.sh`), and 0.x versions
-are marked as pre-releases.
-
-To release, bump the version (`version` in `pyproject.toml`), push it, then push a matching tag:
-
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
+- [bootloader](https://github.com/soccentric-stm32/bootloader) — A/B bootloader with UART update, CRC32 checks, trial boot and rollback
+- [app-c-freertos](https://github.com/soccentric-stm32/app-c-freertos) — Demo application in C on FreeRTOS
+- [app-c-zephyr](https://github.com/soccentric-stm32/app-c-zephyr) — Demo application in C on Zephyr RTOS
+- [app-rust-freertos](https://github.com/soccentric-stm32/app-rust-freertos) — Demo application in Rust on Embassy
+- [app-rust-zephyr](https://github.com/soccentric-stm32/app-rust-zephyr) — Demo application in Rust on Zephyr RTOS
+- [validation-firmware](https://github.com/soccentric-stm32/validation-firmware) — HWVAL hardware validation firmware
+- [validation-gui](https://github.com/soccentric-stm32/validation-gui) — HWVAL Studio: desktop GUI for tests, updates and flashing
+- [soccentric-stm32.github.io](https://github.com/soccentric-stm32/soccentric-stm32.github.io) — Project website
 
 ## License
 
-[MIT](LICENSE) © 2026 Sandesh Ghimire. Use it as a starting point for your own
-production line. Third-party tools and libraries (PySide6, OpenOCD and others)
-keep their own licences.
+Released under the [MIT License](LICENSE) © 2026 Sandesh Ghimire. You are free
+to use, modify and ship it in your own products.
 
-Author: Sandesh Ghimire <sandesh@soccentric.com>
+Contributions are welcome. Fork the repository, make your change on a branch and
+open a pull request. Bug reports, ideas and improvements are all appreciated.
