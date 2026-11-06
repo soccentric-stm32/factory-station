@@ -1,290 +1,528 @@
-# HWVAL Factory — improvement plan
+# HWVAL Factory — rethink and implementation brief
 
 Author: Sandesh Ghimire <sandesh@soccentric.com>
-Date: 2026-11-04
-Scope: everything needed to turn HWVAL Factory into a complete end-of-line
-(EOL) station that takes a blank STM32F767ZI board and leaves it tested,
-loaded with the bootloader and the factory application, given its identity
-(serial number, MAC address, hardware revision, calibration), locked, labelled
-and recorded.
+Date: 2026-11-06
+Replaces: the 2026-11-04 improvement plan (see git history). Most of that
+plan was implemented; this brief starts from what the station is today and
+what the rest of the workspace has become since then (signed images,
+anti-rollback, protocol minor 3, the debug UART, the `bootctl` fixes).
+
+This document is written as instructions for an LLM coding agent working in
+this workspace. A human engineer can follow it the same way.
 
 ---
 
-## 0. Implementation status (2026-11-04)
+## 0. How to use this document (read first)
 
-The factory-side P0 contract work is implemented and covered by `make test`:
+You are rebuilding the end-of-line (EOL) station for STM32F767ZI boards.
+Work through the phases in §7 in order. Each task has an ID, the files
+involved, the steps and a **Done when** list. A task is not done until every
+item in its Done-when list is true and its tests pass.
 
-| Area | Status |
-|---|---|
-| B-01…B-03 real HWLINK framing, `mode link`, catalogue + Run events + prompts | done |
-| B-04 IBWH image parser/builder | done |
-| B-05 Appendix B header/VERIFIED/ACTIVATED/CONFIRMED writer | done |
-| B-06/B-07 flash writes and `options_write <bank> <user> <boot0> <boot1>` | done (bench confirmation still required) |
-| B-08 one layout module and profile layout validation | done |
-| B-09 released profile from real BOOT/HWVAL/application builds | done (`profiles/sc767-1.0.0`) |
-| B-10/B-14 boot check plus identity readback | done |
-| B-11/B-12 `--detect`, `station.local.yaml`, `--probe`, GUI bring-up | done |
-| B-13 application load through BOOT over VCP (`app_load: boot`) | done |
-| C-01…C-03 real protocol simulator, flash layout and BOOT metadata | done |
-| D-01 identity contract (`PRV1`, CRC, UID binding) | done; magic corrected from `1VRP` |
-| D-02 MAC sources: OUI, imported CSV pool, UID-derived local MAC | done (external EEPROM source not enabled) |
-| D-03 serial templates with standard tokens | done (pre-printed-label reservation uses the normal serial range) |
-| A-01 identity area in boot_layout.h; BOOT refuses to erase sector 13 | done |
-| A-03/A-04 identity reader in C, Rust/Embassy and Zephyr applications | done |
-| A-05 identity reported over HWLINK (`HelloReply.detail`, PRV1 keys) | done |
-| A-08 OpenOCD option-byte path confirmed on NUCLEO-F767ZI | done (see `docs/hardware-verification.md`) |
-| E-01/E-02 protection order, post-protection boot check, RDP 2 blocked | done |
-| E-03 supervisor RDP 1 -> 0 recovery with mass erase and audit | done |
-| F-04 lid/clamp and board-present inputs (none/gpio drivers) | done |
-| F-05/F-06 self-test expiry and insertion maintenance block production | done |
-| F-08 HID and serial barcode scanners with prefix/suffix and fixture routing | done |
-| J-01/J-02 pytest suite and cross-repo contract checks | done |
-| H-02/H-04 MES idempotency, DB quick-check, backups and schema-version guard | done |
-| J-03 pytest-qt UI smoke, scenario CLI and MES idempotency | done |
-| J-05 ruff and mypy gates | done |
+### 0.1 Ground rules
 
-Still requiring the firmware repositories or hardware:
+1. **The firmware is the specification.** Never invent a constant, a message,
+   a record format or an address. Read it from the firmware repository named
+   in §2 and cite the file in a comment. If the firmware and this document
+   disagree, the firmware wins; stop and report the difference.
+2. **One source of truth per contract.** Protocol schema, image format, flash
+   layout and identity format come from the bootloader repository's published
+   bundle (task P0-02), never from a hand-kept copy.
+3. **The station never holds a private signing key.** Images arrive signed
+   from the release pipeline. The station verifies signatures with public
+   keys only.
+4. **RDP level 2 is never applied**, by any code path, in any mode. Keep the
+   existing refusals and their tests.
+5. **Never erase or write the identity sector** (bank 2 sector 13) except in
+   the identity step or in an audited supervisor rework.
+6. **Simulator parity.** Every behaviour change in the hardware path must
+   also land in the simulator, with a test, in the same change. No
+   `if simulation:` inside protocol, image or flash logic; the simulator is
+   an adapter behind the same interface.
+7. **Hardware actions with permanent effects** (option bytes, RDP, mass
+   erase, identity writes) run only through the station's own step code,
+   never from an ad-hoc script, and only on a board the engineer has
+   designated for the test.
+8. **Match the repository's style:** Python 3.10+, type hints, ruff clean,
+   the existing docstring/comment density, `hostcore`/`hwval_factory` naming.
+   Commits are authored by Sandesh Ghimire only, with no co-author lines.
+9. After every task: `make test` (pytest, offscreen Qt) and `make lint` must
+   pass. Hardware tasks also need the HIL check in §8.3, run and recorded.
 
-* A-01, A-03, A-05, A-06: bootloader `boot_layout.h` identity area, C/Rust/Zephyr
-  identity readers, `GetIdentity` HWLINK message and MAC use.
-* J-04 nightly hardware-in-the-loop run.
-* The bench confirmation in OPEN-B05, and all real-instrument tests in F/G.
+### 0.2 Commands you will need
 
----
-
-## 1. Where the app stands today
-
-The station framework is in place: about 12k lines covering the fixture engine,
-the 11-step state machine, the SQLite traceability database, serial/MAC
-allocation, labels, MES queue, login/roles, the PySide6 UI, the CLI and
-packaging. Two things run correctly today:
-
-* `hwval-factory --cli --station examples/station.simulator.yaml ...` completes
-  a unit with PASS.
-* The GUI starts and runs against the simulator.
-
-**Against a real board, none of the device-facing steps work.** The host code
-and its simulator were written against an invented protocol, image format and
-flash layout. They agree with each other but not with the firmware in this
-workspace. The simulator therefore proves nothing about real hardware.
-
-### 1.1 Confirmed mismatches with the real firmware
-
-| # | Area | Factory app today | Real firmware | Where |
-|---|---|---|---|---|
-| M1 | HWLINK framing | `0xA5 0x5A` sync, own header, dict payloads | COBS + 0x00 delimiter, 8-byte header, CRC-32, FlatBuffers `Message` (protocol 1.1) | `src/hostcore/hwlink.py` vs `validation-firmware/src/hwlink.h`, `protocol/hwlink.fbs` |
-| M2 | HWLINK messages | Invented `MessageType` set | `Hello/HelloReply`, `GetDeviceInfo`, `ListTests`, `Run`, `RunStarted`, `TestStarted`, `TestResult`, `OperatorPrompt`, `OperatorAnswer`, `RunFinished`, `GetBootInfo`, `Update*`, `Activate` | same |
-| M3 | Link mode | Assumes HWLINK on connect | HWVAL boots into the text CLI. The host must send `mode link` first (LINK-010 keeps it across reset) | `validation-firmware/src/link.h` |
-| M4 | Application image | `SCFW` header (`images.py`) | `IBWH` header, 256 bytes, built by `bootloader/tools/mkimage.py` | `src/hostcore/images.py:27` vs `mkimage.py:26` |
-| M5 | Slot A address | `0x08020000` | `0x0800C000` (bank 1 sectors 3–11, 976 KB) | demo `manifest.yaml` vs `bootloader/src/common/boot_layout.h` |
-| M6 | Boot metadata | `0x0801F000`, stride `0x100`, `BMET` records | `0x08008000` (bank 1 sector 2): header at +0x000, VERIFIED +0x100, ACTIVATED +0x120, CONFIRMED +0x140, REJECTED +0x160. 32-byte records with their own magic and a CRC over the first 28 bytes | same |
-| M7 | Option bytes for product | `nDBOOT: 0` in the profile | BOOT requires `nDBANK = 0`, `nDBOOT = 1`, `BOOT_ADD0 = 0x0080`, `BOOT_ADD1` kept | `bootloader/SRS.md` BASM-001/002, `tools/provision.sh` |
-| M8 | `options_write` call | `stm32f2x options_write <optcr> <optcr1>` | OpenOCD expects `stm32f2x options_write <bank> <user_options> <boot_addr0> <boot_addr1>` | `src/hostcore/openocd.py:366` vs `provision.sh` |
-| M9 | Writing to flash | `write_memory()` uses `load_image`, which writes target memory, not flash, so the provisioning record and metadata are never actually programmed | Use `flash write_image` / `flash fillw` and erase the sector first | `src/hostcore/openocd.py:334` |
-| M10 | Demo images | 168–320 byte placeholder files | Real builds exist: `bootloader/build/boot.hex`, `validation-firmware/build/hwval.elf`, `application/build/app.bin` | `examples/profile-sc767-demo/` |
-| M11 | Calibration source | `ADC.001.vrefint_mv` | VREFINT is measured by `ADC.002` / `PWR.001` | demo `manifest.yaml` vs `TEST_CATALOGUE.md` |
-| M12 | Provisioning record consumer | Writes a record at `0x08104000` | No firmware reads it. The application uses the chip UID only and has no serial number, MAC or calibration source | `application/src/comms_task.c` |
-| M13 | Real-hardware defaults | GUI with no `--station` runs simulated | — | `src/hwval_factory/app.py:81` |
-
-HWVAL Studio (`validation-gui`) already has a working
-COBS/CRC/FlatBuffers stack (`protocol/link.py`, `protocol/codec.py`,
-`protocol/generated/`), an OpenOCD wrapper and a device client. Use these
-instead of rewriting them.
-
----
-
-## 2. Target end-of-line flow
-
-```
- scan ─► identify ─► bench config ─► load HWVAL ─► EOL tests ─► calibrate
-   │                                                               │
-   └──────────────────────────────────────────────────────────────┘
-                                   ▼
- product config ─► BOOT ─► factory/app image ─► boot metadata ─► identity record
-                                   ▼
- boot check (APP role, identity, confirmed slot) ─► protection ─► label ─► record ─► MES
+```bash
+cd factory-station
+make dev                                   # venv with dev + test deps (pytest-qt included)
+QT_QPA_PLATFORM=offscreen make test        # unit, contract, simulator and UI smoke tests
+make lint                                  # ruff
+hwval-factory --detect                     # ST-LINK probes and VCP ports
+hwval-factory --cli --station examples/station.simulator.yaml --pcb-serial TEST1
+python3 ../bootloader/tools/bootctl.py --port /dev/ttyACM0 --no-enter info   # does not disturb a running app
+python3 ../bootloader/tools/mkimage.py --inspect IMG --key PUBKEY.pem          # check a signed image
 ```
 
-| # | Step | Transport | Result on success |
-|---|---|---|---|
-| 1 | Scan PCB serial and work order | Scanner | Unit and order bound to fixture |
-| 2 | Identify chip: DEV_ID 0x451, REV_ID, UID, flash size, OPTCR/OPTCR1, RDP | SWD | Chip matches profile |
-| 3 | Bench config: `nDBANK = 1`, mass erase | SWD | Single-bank flash, empty |
-| 4 | Program and verify HWVAL test image | SWD | HWVAL running |
-| 5 | Enter link mode, `Hello`, `GetDeviceInfo`, cross-check UID | VCP | Session up, same chip |
-| 6 | Run the profile's test plan with limits and operator prompts | VCP | All results PASS |
-| 7 | Compute calibration from measurements | Host | Values in range |
-| 8 | Product config: `nDBANK = 0`, `nDBOOT = 1`, `BOOT_ADD0 = 0x0080`, mass erase | SWD | Dual-bank, empty |
-| 9 | Program and verify BOOT at `0x08000000` | SWD | BOOT in bank 1 sectors 0–1 |
-| 10 | Program the factory/application image (IBWH) into slot A | SWD or BOOT update over VCP | Image CRC verified |
-| 11 | Write boot metadata so slot A is verified and active | SWD | BOOT selects slot A |
-| 12 | Allocate serial number and MAC, build the identity record, write and read back | SWD | Byte-for-byte match |
-| 13 | Reset, `Hello` from the application, `GetBootInfo` and identity readback | VCP | Role APP, slot A confirmed, identity matches |
-| 14 | Apply BOR, WRP (BOOT + identity sectors), RDP 1; read back | SWD | Protection as specified, never RDP 2 |
-| 15 | Print the label | ZPL | Label printed or queued |
-| 16 | Commit the run, consume serial/MAC, queue for MES | SQLite / HTTPS | Unit PASS |
+---
+
+## 1. What the station is for
+
+On the production line, one operator action per board takes a blank
+NUCLEO-F767ZI-class board and leaves it:
+
+1. **identified** — chip ID, revision, UID, flash size, option bytes;
+2. **tested** — the profile's EOL test plan run by the HWVAL firmware, with
+   limits, operator prompts and calibration;
+3. **programmed** — the bootloader (BOOT) and the factory firmware, signed
+   with the product key, laid out so BOOT boots it;
+4. **personalised** — serial number, MAC address, hardware revision and
+   calibration in the identity record, bound to the chip UID;
+5. **checked** — BOOT starts the factory firmware, which confirms itself and
+   reports the same identity;
+6. **locked** — BOR, write protection on BOOT and the identity sector, RDP 1;
+7. **labelled and recorded** — label printed, every fact stored, MES updated.
+
+Beside the full flow the station offers **single tools** for engineers and
+supervisors: probe a fixture, identify a chip, erase, program BOOT, load an
+image, read or rewrite the identity, run one test, boot-check, protect,
+recover a stuck or read-protected board, reprint, export. Today these are
+scattered flags; in the target design every single tool is one step of the
+pipeline run on its own (§5.3).
 
 ---
 
-## 3. Task list
+## 2. Ground truth: the system the station serves (as of 2026-11-06)
 
-Priority: **P0** blocks a real board from passing; **P1** needed for
-production; **P2** needed for scale or audit; **P3** improvement.
-Each task lists what "done" means.
+Verify each item against the cited file before relying on it.
 
-### Phase A — Firmware contracts (shared with the firmware repos)
+### 2.1 Flash layout (`bootloader/src/common/boot_layout.h`)
 
-| ID | Pri | Task | Done when |
-|---|---|---|---|
-| A-01 | P0 | Define the **identity/provisioning area** in `boot_layout.h`. Use bank 2 sector 13 (`0x08104000`, 16 KB, currently "reserved"). Document its address with and without bank swap (`0x08004000` when `SWP_FB = 1`). | One header names the address. BOOT never erases it, and a test confirms that. |
-| A-02 | P0 | Freeze the **identity record format**: header (magic `PRV1`, format, length, UID binding, CRC-32) plus TLVs for serial, product, HW revision, manufacturing time, station/fixture, profile, firmware version, MAC, calibration (0x20–0x2F), customer (0x40–0x4F), custom (0x80–0xFE). Write it as an SRS appendix shared by all repos. | Spec merged. Host encoder and firmware decoder pass the same test vectors. |
-| A-03 | P0 | Add an **identity reader** to the C application: verify CRC and UID binding, expose serial/MAC/rev/calibration, fall back safely when blank. | App reports the identity over HWLINK and uses the MAC for Ethernet. |
-| A-04 | P1 | Port the identity reader to the Rust (Embassy) and Zephyr applications. | All three apps report the same identity from one board. |
-| A-05 | P0 | Add an **identity query to HWLINK** (`GetIdentity` → `Identity`, or extra fields in `DeviceInfo`/`Status`). Bump the protocol minor version. Regenerate code in every repo. | Factory boot check reads the identity over VCP. |
-| A-06 | P1 | Use the provisioned MAC in the application's Ethernet init (LwIP/Embassy/Zephyr). If none is provisioned, fall back to a UID-derived locally administered MAC. | Link comes up with the provisioned MAC. |
-| A-07 | P1 | Decide and document the **factory image**: either the normal application or a dedicated factory build (for example a burn-in or self-test mode that confirms itself). Add a build target that produces the IBWH image with a release version. | Profile names one released IBWH file. |
-| A-08 | P1 | Settle **OPEN-B05 / OPEN-F02**: confirm on the bench that `stm32f2x options_write` sets `nDBANK`/`nDBOOT` on the F767. If not, add the STM32CubeProgrammer CLI path. | Both directions (bench ⇄ product) work on a real board, logged. |
-| A-09 | P2 | Decide whether **BOOT checks the identity record** (for example refusing to start an app when it is missing in production builds). | Decision in the BOOT SRS. |
+| Region | Address | Notes |
+|---|---|---|
+| BOOT | `0x08000000`, 32 KB, bank 1 sectors 0–1 | currently 32,296 of 32,768 bytes with debug output on |
+| Metadata A | `0x08008000`, bank 1 sector 2 | header at +0x000, VERIFIED +0x100, ACTIVATED +0x120, CONFIRMED +0x140, REJECTED +0x160, then TRIAL records; append-only |
+| Slot A | `0x0800C000`, 976 KB, bank 1 sectors 3–11 | |
+| Slot B | `0x0810C000`, bank 2 | metadata B at `0x08108000` |
+| Identity | `0x08104000`, bank 2 sector 13 (`0x08004000` when banks are swapped) | BOOT never erases it |
 
-### Phase B — Make one real board pass (factory app)
+The product needs dual-bank flash: `nDBANK = 0`, `nDBOOT = 1`,
+`BOOT_ADD0 = 0x0080`, software watchdogs (`IWDG_SW = WWDG_SW = 1`).
+`bootloader/tools/provision.sh` is the reference sequence.
 
-| ID | Pri | Task | Done when |
-|---|---|---|---|
-| B-01 | P0 | Replace `src/hostcore/hwlink.py` with the real stack: COBS, 8-byte header, CRC-32, FlatBuffers `Message` union, request/response by sequence number, event handling. Reuse HWVAL Studio's `link.py`/`codec.py` and generated code. Remove the invented message set. | Round-trip tests pass against the firmware's frame vectors. Talks to a real HWVAL. |
-| B-02 | P0 | Enter link mode: send `mode link` over the text CLI, wait for HWLINK, handle the LINK-010 reset flag and the `EnterTextMode` fallback. | Works on a freshly flashed board and after reset. |
-| B-03 | P0 | Rewrite the test step on real messages: `ListTests`, `Run` (by ID/pattern), `RunStarted`/`TestStarted`/`TestResult`/`RunFinished`, `OperatorPrompt` ⇄ `OperatorAnswer`, `Abort`, `GetResults`, `GetReport`. | Full test plan runs with prompts on a real board. Results are stored per test. |
-| B-04 | P0 | Replace `images.py`'s SCFW format with **IBWH**: parse/validate the 256-byte header (magic, version, size, type, load address, entry, length, CRC, SHA, header CRC), check SP and reset vector like `mkimage.py`, and keep `.hex`/`.elf`/`.bin` support for BOOT and HWVAL. | Accepts the real `app.img`. Rejects a corrupt one. |
-| B-05 | P0 | Replace the metadata writer with the **Appendix B format**: header at +0x000 and VERIFIED/ACTIVATED (and optionally CONFIRMED) at their fixed offsets, with the correct magic and CRC. Erase sector 2 first. | BOOT on a real board selects slot A without a UART update. |
-| B-06 | P0 | Fix flash writes in `openocd.py`: `flash write_image erase <file> <addr> bin` (or sector erase + `flash write_image`) for metadata and identity, then `verify_image`. Never use `load_image` for flash. | Write → power cycle → read back matches. |
-| B-07 | P0 | Fix `write_option_bytes` to OpenOCD's real `options_write 0 <user> <boot0> <boot1>` signature. Keep `BOOT_ADD1`, keep the register fallback, power-cycle/re-examine after an `nDBANK` change. | Bench and product configs apply and read back on hardware. |
-| B-08 | P0 | Correct the profile: slot A `0x0800C000`, metadata `0x08008000`, product `nDBOOT = 1`, `BOOT_ADD0 = 0x0080`, identity area from A-01, calibration from `ADC.002`/`PWR.001`. Read layout constants from one module, not from each manifest. | Profile validation rejects any address outside the layout. |
-| B-09 | P0 | Build a **real released profile** (`profiles/sc767-1.0.0/`) from the real `boot.hex`, `hwval.elf` and IBWH app image, with SHA-256 pins. Add `hwval-profile build --from-workspace` to collect the artefacts. Keep the placeholder demo for the simulator only. | Profile verifies. A real board passes with it. |
-| B-10 | P0 | Boot check on real messages: reset, wait for the application `HelloReply` (role APP), `GetBootInfo` (active = A, confirmed), identity readback from A-05, version equals the profile. | Fails clearly on wrong slot, unconfirmed image or identity mismatch. |
-| B-11 | P0 | Real-hardware station: `examples/station.local.yaml` with auto-detected ST-LINK serials. `hwval-factory --detect` prints probes and VCP ports. The GUI asks for a station file instead of silently simulating. | Fresh install finds the plugged-in ST-LINK/V2.1 and runs on it. |
-| B-12 | P0 | `hwval-factory --probe --fixture F1` bring-up command: SWD connect, IDCODE/DEV_ID/UID, option bytes, a test-flash, VCP open, `Hello`. | One command shows what works and what fails, step by step. |
-| B-13 | P1 | Second path for step 10: load the app **through BOOT over VCP** (`UpdateBegin/Data/End`, `Activate`) as `bootctl.py` does. Choose per profile (`app_load: swd | boot`). | Both paths pass. BOOT's own image check runs in the `boot` path. |
-| B-14 | P1 | Read back the identity sector after reset and after protection, through SWD and HWLINK. | Both readbacks recorded in the run. |
+### 2.2 BOOT behaviour that the station must respect
 
-### Phase C — Simulator that matches the hardware
+* **Signed images only** (BSAFE-006, `bootloader/docs/IMAGE_SIGNING.md`).
+  Header version 2: `security_counter` (offset 88), `key_id` (92),
+  `image_sha256` (96), ECDSA P-256 `signature` (128), `header_crc32` (252).
+  Version 1 images are refused before anything is erased (`AUTH_FAILED`).
+  BOOT checks the signature on `UpdateBegin`, the SHA-256 on `UpdateEnd`,
+  everything again on `Activate`, and both slot headers on every boot.
+* **Key:** the build embeds a 64-byte raw public key (`boot_signing_pubkey`,
+  from `BOOT_SIGNING_KEY_SOURCE`) and its id (`boot_signing_key_id`). The 64
+  bytes appear verbatim in `boot.bin`/`boot.hex`; the default build trusts
+  the published development key, id `0xfaa7171b`.
+* **Anti-rollback floor:** the highest `security_counter` among authentic,
+  CONFIRMED, non-REJECTED slots. Anything below it is refused and a lower
+  slot becomes "superseded". **A CONFIRMED record written by the station
+  sets the floor of that board for good.**
+* **Listen window (ENT-001):** for 500 ms after reset BOOT waits for a
+  Hello. A Hello in that window keeps BOOT in update mode (120 s timeout).
+  Any host that resets the board and then sends Hello may park BOOT by
+  accident (see R4).
+* **Trial boot:** an image activated over HWLINK boots on trial; it must
+  write CONFIRMED within the IWDG window (4 s, kicked) and the trial limit
+  is 3 starts, then BOOT rejects it and rolls back. **An active slot on
+  trial blocks `UpdateBegin` (unless `force`) and blocks `Activate`
+  (no override).**
+* **Factory HEX:** `mkimage.py --factory-hex OUT --boot boot.hex --slot-a
+  a.img --slot-b b.img` builds one HEX with BOOT, both slots and both
+  metadata sectors marked CONFIRMED (both slots required today).
+* **Debug output:** BOOT and every application print text lines on USART6
+  TX, PG14 = Arduino D1, 115200 8N1, format `[<ms>] <TAG> <E|W|I|D> <text>`
+  (tags `BOOT`, `C-FRT`, `C-ZEP`, `R-EMB`, `R-ZEP`, `HWVAL`).
 
-| ID | Pri | Task | Done when |
-|---|---|---|---|
-| C-01 | P0 | Rebuild the simulated device on the real HWLINK stack (reuse HWVAL Studio's `simulator/device.py`): text CLI → `mode link`, HWVAL test catalogue, APP role with `GetBootInfo` and identity. | The same host code drives the simulator and hardware with no `if simulation` in the protocol path. |
-| C-02 | P0 | Simulated flash that enforces the real layout: sector erase granularity, write-only-after-erase, `nDBANK` remap and mass erase on change, RDP/WRP effects, bank swap. | Wrong address or a missing erase fails in simulation the way it does on silicon. |
-| C-03 | P1 | Simulated BOOT: reads Appendix B metadata and the IBWH header, selects a slot, rejects bad CRC, trial boot and rollback. | Corrupt metadata produces "no app" in simulation. |
-| C-04 | P1 | Fault injection that covers real failures: SWD drop mid-write, VCP not enumerated, power brown-out during option-byte write, wrong board revision, prompts that time out. | Each fault ends in ABORTED/INCOMPLETE with the recorded safe state. |
-| C-05 | P2 | Scripted scenarios (`--scenario yield-95.yaml`) for demos and dashboard testing. | Dashboard shows realistic yield and Pareto. |
+### 2.3 HWLINK protocol (`bootloader/protocol/hwlink.fbs`)
 
-### Phase D — Identity, serials and MAC
+* Major 1, **minor 3**. COBS, 8-byte header, CRC-32, FlatBuffers `Message`.
+* Minor 2 added `BootInfo.active_valid`, `target_slot`, `boot_version`,
+  `boot_build`, and the `force` flag on `UpdateBegin`.
+* Minor 3 added `Error.AUTH_FAILED = 14`, `Error.ROLLBACK = 15`,
+  `ImageHeader.header_crc32` and `ImageHeader.extension` (header bytes
+  88–251 verbatim), `BootSlotInfo.security_counter`,
+  `BootInfo.signed_images`, `key_id`, `security_floor`.
+* `bootloader/tools/package_hwlink.py` (`make package-hwlink`) publishes the
+  canonical schema, generated Python, `mkimage.py`, `boot_layout.h` and a
+  vendored FlatBuffers runtime.
 
-| ID | Pri | Task | Done when |
-|---|---|---|---|
-| D-01 | P0 | Align `identity.py` with A-02. Encoder/decoder test vectors are shared with the firmware. | Same bytes from host and firmware tests. |
-| D-02 | P1 | MAC sources: an IEEE OUI block from the work order, a pool imported from CSV, or locally administered from the UID. Optionally read an EUI-48 from an external EEPROM over a test command. Warn on a locally administered MAC in production profiles. | Each source tested. Duplicates are impossible (unique index). |
-| D-03 | P1 | Serial number formats: template tokens (`{yyww}`, `{counter}`, `{luhn}`, `{site}`, `{line}`, `{rev}`), per-product counters, and reservation for pre-printed labels. | Templates validated at profile load. |
-| D-04 | P1 | Rework and retest: same UID → same serial and MAC; a new PCB on an old serial needs a supervisor; scrap releases nothing. | All three cases covered by tests. |
-| D-05 | P2 | Optional per-unit secrets: device key pair or certificate generated on host (or HSM/KMS), public part recorded, private part written once and never logged. Protect it with WRP + RDP. | Off by default. Key never appears in DB, logs or exports. |
-| D-06 | P2 | Customer and order fields from the MES or work order file, written as TLV 0x40–0x4F. | Values appear on label and certificate. |
+### 2.4 Host tools in `bootloader/tools`
 
-### Phase E — Protection and security of the unit
+* `bootctl.py`: `info`, `update` (`--activate --wait`, `--force`), `activate`,
+  `enter`, `wait`, `catch`, `reset`, `set-baud`, `--json` event stream.
+  `wait` now releases BOOT when it catches the listen window and reports a
+  rollback only on evidence; `catch --for N` resends Hello every 50 ms while
+  the board is reset (SWD/NRST), to reach BOOT when the application does
+  not answer HWLINK. Read these two functions before writing any
+  reset-then-talk logic in the station.
+* `mkimage.py`: wrap, `--sign`, `--inspect [--key]`, `--genkey`,
+  `--export-pubkey`, `--factory-hex`.
+* `flash_gui.py` (BOOT Flasher): developer GUI. The station does **not**
+  reuse its UI, only the shared host library (§5.1).
 
-| ID | Pri | Task | Done when |
-|---|---|---|---|
-| E-01 | P0 | Order: all SWD readbacks before RDP 1, then WRP on BOOT (sectors 0–1) and the identity sector, then BOR, then RDP 1 last. Power cycle and read back OPTCR/OPTCR1. | Protection verified after power cycle. |
-| E-02 | P0 | Keep RDP 2 blocked everywhere (profile, CLI, UI, OpenOCD wrapper) with tests. | Any request for RDP 2 is refused with a clear message. |
-| E-03 | P1 | Supervisor rework: RDP 1 → 0 with mass erase, audited, with a reason code. | Audit log shows who, when, why. |
-| E-04 | P1 | Check that BOOT and the application still run under RDP 1 + WRP (VCP update still works, the app confirms). | Boot check runs after protection on hardware. |
-| E-05 | P2 | Optional PCROP/secure-area study for keys from D-05. | Decision recorded. |
+### 2.5 Firmware the station programs
 
-### Phase F — Station, fixtures and hardware
+* **Applications** (`app-c-freertos`, `app-c-zephyr`, `app-rust-freertos`,
+  `app-rust-zephyr`): run under BOOT from slot A or B, write CONFIRMED 5 s
+  after start when healthy, answer `Hello` (role APPLICATION/DEMO),
+  `GetStatus` (slot, trial, health, version, commit, UID), report identity
+  keys in `HelloReply.detail`, honour `EnterBootloader` and `Reset`.
+* **HWVAL** (`validation-firmware`): test firmware.
+  * Boots into a **text CLI**; the host must send `mode link` to switch to
+    HWLINK (LINK-010 keeps it across one reset). The CLI also auto-detects a
+    HWLINK frame.
+  * After boot it runs its **boot test suite** unless in link mode; while
+    the suite runs it does not answer HWLINK.
+  * It is being ported to run **under BOOT as a signed slot image**
+    (uncommitted work in progress on 2026-11-06: it fails CORE.001/002/009/
+    010 and CACHE.003 and restarts several times during the suite; trials
+    were seen to fail). Treat "HWVAL under BOOT" as not ready (decision D-1).
 
-| ID | Pri | Task | Done when |
-|---|---|---|---|
-| F-01 | P0 | Probe management: list ST-LINKs (serial, firmware version), bind to fixtures, find the VCP from the same USB serial on Linux and Windows, warn on old ST-LINK firmware. | Station dialog shows each fixture's probe and port. |
-| F-02 | P1 | One OpenOCD per fixture with fixed telnet/TCL/GDB ports, health check, restart on crash, adapter speed from the station config, `hla_serial`/`adapter serial` selection. | Eight fixtures run at once without port clashes. |
-| F-03 | P1 | Power control drivers tested on hardware: USB hub port power (uhubctl), relay board, programmable supply (SCPI) with current limit and current measurement as a test. | Supply current is logged per unit. |
-| F-04 | P1 | Fixture inputs: lid/clamp switch and board-present detection (GPIO or USB relay inputs). A run starts only when the fixture is closed. | Opening the lid aborts safely. |
-| F-05 | P1 | Golden-board self-test on real hardware, with an expiry interval enforced before production starts. | Production blocked when the self-test is due or failed. |
-| F-06 | P1 | Pogo pin / insertion counter with maintenance limit and supervisor reset. | Warning at limit, block at limit + margin. |
-| F-07 | P2 | Optional instruments: DMM/scope over SCPI, Ethernet loopback partner for `ETH.*`, an external UART partner for `UART.*`. | Tests that need them are skipped unless configured. |
-| F-08 | P2 | Barcode scanner support: HID keyboard wedge and serial scanners, prefix/suffix rules, per-fixture routing. | Scanning into any fixture works without focus. |
+### 2.6 Where the station is today (`factory-station`)
 
-### Phase G — Operator and supervisor UI
-
-| ID | Pri | Task | Done when |
-|---|---|---|---|
-| G-01 | P0 | Clear failure reasons on tiles: probe not found, SWD error, VCP missing, test X failed (value vs limit), identity mismatch, printer offline — each with a suggested action. | No "station error" without a cause. |
-| G-02 | P0 | Hardware bring-up page (engineer role): detect probes, read chip info, option bytes, flash a file, open VCP, `Hello`, run single tests. | Engineer can diagnose a fixture without the CLI. |
-| G-03 | P1 | Work order screen: load from file or MES, quantity, serial/MAC usage bar, close order. | Order progress visible live. |
-| G-04 | P1 | Operator prompts from `OperatorPrompt` rendered by kind (yes/no, line entry, button press, equipment, destructive) with a timeout countdown. | All five prompt kinds work on a real board. |
-| G-05 | P1 | Unit search and history: by serial, MAC, UID, PCB serial, order, date; reprint, certificate, rework start. | Any unit found in under a second at 100k units. |
-| G-06 | P1 | Profile manager: import signed profiles, show the signature/hash status, release/retire profiles, choose a profile per work order. | Unsigned profile refused when signatures are required. |
-| G-07 | P2 | Yield dashboard: first-pass yield, retest yield, Pareto by test, cycle time per step, per fixture, per shift. | Matches the database totals. |
-| G-08 | P2 | Localisation (at least English plus one line language) and large-font kiosk mode. | All operator strings translatable. |
-| G-09 | P3 | Sounds and stack-light output (USB light tower) for PASS/FAIL/attention. | Light follows fixture state. |
-
-### Phase H — Traceability, MES and reports
-
-| ID | Pri | Task | Done when |
-|---|---|---|---|
-| H-01 | P1 | Store per run: profile + all image hashes, option bytes before/after, every test result with limits, calibration, identity record bytes, operator, station, fixture, probe serial, durations. | One query reconstructs everything that was done to a unit. |
-| H-02 | P1 | MES uplink tested against a mock server: retries with back-off, idempotency key per run, queue visible in the UI, alarm when the queue grows. | No duplicates after network loss. |
-| H-03 | P1 | Exports: CSV/JSON per order and date range, per-unit PDF certificate, daily summary. | Exports open in Excel and match the DB. |
-| H-04 | P2 | Database backup and rotation, integrity check on start, schema migrations with versioning. | Upgrading the app keeps old data. |
-| H-05 | P2 | Optional central database (PostgreSQL) for several stations sharing one serial/MAC pool. | Two stations never allocate the same serial. |
-
-### Phase I — Access and app security
-
-| ID | Pri | Task | Done when |
-|---|---|---|---|
-| I-01 | P1 | Force a PIN change on the default `admin` account before production use. | Production mode refuses the default PIN. |
-| I-02 | P1 | Role checks on every action (UI and CLI): rework, reprint, profile import, station settings, RDP lowering. | Unauthorised action refused and audited. |
-| I-03 | P2 | Profile signing workflow: offline key, `hwval-profile sign`, trusted keys in the station config, rotation. | Tampered image file refused at load. |
-| I-04 | P2 | Secrets (MES token, HSM credentials) from the OS keyring or environment, never from YAML in the repo. | No secret in config, DB or logs. |
-
-### Phase J — Testing, CI and hardware-in-the-loop
-
-| ID | Pri | Task | Done when |
-|---|---|---|---|
-| J-01 | P0 | Add a `tests/` pytest suite (already listed in `pyproject.toml`): HWLINK frames, IBWH parse, metadata records, identity record, option-byte encoding, serial/MAC allocation, profile validation. | `make test` green in CI. |
-| J-02 | P0 | Cross-repo contract tests: compare the host's constants with `boot_layout.h`, `hwlink.fbs` and `mkimage.py` in CI. | Changing a firmware constant fails the factory CI. |
-| J-03 | P1 | End-to-end simulator tests (pytest-qt for the UI): PASS, each fail path, abort, rework, reprint. | Every step's failure path covered. |
-| J-04 | P1 | Hardware-in-the-loop job on a Jenkins node with a NUCLEO-F767ZI: full run, rework, protection, recovery. | Nightly HIL run on real silicon. |
-| J-05 | P2 | Turn on type checking (`mypy --strict`) and ruff as gates instead of warnings. | CI fails on new errors. |
-
-### Phase K — Packaging, deployment and docs
-
-| ID | Pri | Task | Done when |
-|---|---|---|---|
-| K-01 | P1 | Bundle or check OpenOCD ≥ 0.12 and the ST-LINK udev rules / Windows driver in the installers. | Fresh PC runs the station after one install. |
-| K-02 | P1 | Station first-run wizard: station ID, database path, printer, fixtures, profile store, admin PIN. | No YAML editing needed for a standard station. |
-| K-03 | P1 | Rewrite the README to state what is verified on hardware and what is simulation only. Update the operator, supervisor and engineering guides with the real flow, bring-up and recovery. | Docs match the code. |
-| K-04 | P2 | Recovery guide: board stuck in bench config, RDP 1 board, wrong option bytes, BOOT without app, connect-under-reset. | Each case has a tested procedure. |
-| K-05 | P2 | Release process: versioned station builds, changelog, profile compatibility (`min_factory_version`). | Old station refuses a newer profile it can't run. |
+* ~12k lines of station code plus the HWLINK stack: fixture engine with an
+  11-step state machine (`src/hwval_factory/station.py`, 2,206 lines),
+  profiles with SHA-256 pins and optional Ed25519 signatures, SQLite
+  traceability, serial/MAC allocation, identity record (`PRV1`), labels,
+  MES queue, roles and login, PySide6 UI, CLI, simulator, packaging.
+* 41 tests pass; the UI smoke test needs `pytest-qt` in the environment.
+* **On silicon** (`docs/hardware-verification.md`): attach, IDs, option-byte
+  writes both directions, WRP/RDP, RDP 1 → 0 recovery and the golden-board
+  self-test pass. **A full end-to-end run has never completed**: it stopped
+  at the test step because nothing answered on the VCP.
 
 ---
 
-## 4. Order of work
+## 3. Review findings (why a rethink, not a patch)
 
-1. **A-01, A-02, A-05, B-01 … B-12, J-01, J-02** — one real board goes from
-   blank to PASS, with BOOT, the IBWH application, serial and MAC written and
-   read back.
-2. **C-01 … C-04, A-03, A-06, D-01, E-01 … E-04** — the simulator matches the
-   hardware, the application uses its identity and protection is verified.
-3. **F, G-01 … G-06, H-01 … H-03, I-01, I-02, K-01 … K-03, J-03, J-04** —
-   ready for the line.
-4. Everything else (P2/P3) for scale and audit.
+Each finding has evidence you can open. Severity: **S1** a real board cannot
+pass, **S2** a board can pass wrongly or intermittently, **S3** cost,
+maintainability or scale.
 
-## 5. Definition of done for the station
+| # | Sev | Finding | Evidence |
+|---|---|---|---|
+| R1 | S1 | The station accepts only header **version 1** images and rejects every signed (v2) image. Current BOOT boots only v2. A board programmed today would sit in BOOT with "image is not signed". | `src/hostcore/layout.py:55` (`IMAGE_HEADER_VERSION = 1`), `src/hostcore/images.py:192` |
+| R2 | S1 | The station speaks **protocol minor 1**; BOOT is at minor 3. The BOOT-load path (`app_load: boot`) sends `ImageHeader` without `extension`, so BOOT zero-fills the signature bytes and answers `AUTH_FAILED`, an error code the station does not even know. | `diff src/hostcore/protocol/hwlink.fbs ../bootloader/protocol/hwlink.fbs` |
+| R3 | S1 | The released profile `profiles/sc767-1.0.0` pins a **pre-signing BOOT** (`boot-1.0.0.hex`, 2026-11-04) and an unsigned app. Internally consistent, but not the product. | `profiles/sc767-1.0.0/manifest.yaml` |
+| R4 | S2 | **Listen-window hazard.** After a reset the boot check sends Hello every 0.2–3 s from the first moment. One can land in BOOT's 500 ms window, park BOOT in update mode, and the unit fails "BOOT did not start an application" on a good board, intermittently. The same bug was found and fixed in `bootctl wait` on 2026-11-06. | `src/hwval_factory/station.py:1790` (`_wait_hello`), `:1518` (`_step_boot_check`) |
+| R5 | S2 | The station writes CONFIRMED for slot A itself but **knows nothing about `security_counter` or the floor**: it never checks the counter of what it writes, cannot explain a ROLLBACK refusal, and a rework with an older image can fail or, worse, leave a "superseded" slot. | `_step_program` (`station.py:1241`), `to_metadata_records` in `images.py` |
+| R6 | S2 | **No key check.** Nothing proves the BOOT build in a profile trusts the key the app was signed with, or that a production profile does not ship the published development key. | profile tool, `profile.py` |
+| R7 | S2 | **Contract tests miss the drift.** They compare the schema against `validation-firmware`'s copy (not the bootloader's), and only the image magic, not the header version or signing fields; they pass while R1–R2 are true. | `tests/test_contracts.py` |
+| R8 | S2 | **Test step vs HWVAL reality.** HWVAL starts in CLI mode and runs its boot suite, during which it ignores HWLINK; the suite can reset the MCU. The hardware run stopped exactly here. | `docs/hardware-verification.md`, §2.5 |
+| R9 | S3 | **Two option-byte flips and two mass erases per unit** (bench `nDBANK = 1`, then product `nDBANK = 0`). Slow, and option-byte programming is the riskiest operation on the line (power loss leaves a board in an unknown configuration). | `_step_prepare` (`station.py:1012`), `_step_program` |
+| R10 | S3 | **Hand-assembled flash image** over many SWD writes (BOOT, slot, erase metadata sector, each record, read-back each) instead of programming one verified factory HEX that the bootloader's own tool builds. | `_step_program`; `mkimage.py --factory-hex` |
+| R11 | S3 | **Four copies of the host stack** (HWLINK, codec, images, OpenOCD) across `factory-station`, `validation-gui`, `bootloader/tools`, plus four differing `hwlink.fbs` files. Every fix has to be found and repeated. | `src/hostcore/`, `validation-gui/src/hwval_studio/protocol/`, `bootloader/tools/` |
+| R12 | S3 | **Monolithic engine.** All steps are methods of one 2,206-line class with transport branches inside them (`if app_load == "boot"`). Steps cannot run alone, which is why single tools are flags on one CLI. | `station.py`, `cli.py:41-87` |
+| R13 | S3 | **No debug evidence.** BOOT and every firmware now print a boot log on USART6, but the station neither wires nor records it; a failed boot check leaves no explanation. | §2.2 |
+| R14 | S3 | Developer environment drift: `make test` in a fresh venv lacks `pytest-qt`; the system Python lacks `flatbuffers`. | `pyproject.toml` |
 
-* A blank NUCLEO-F767ZI on fixture F1 reaches PASS from the GUI with one scan.
-* After the run the board boots BOOT → slot A application, the application
-  reports the provisioned serial number and MAC over HWLINK and uses that MAC
-  on Ethernet.
-* Option bytes read back as `nDBANK = 0`, `nDBOOT = 1`, BOR as profiled, WRP on
-  BOOT and the identity sector, RDP 1.
-* The label shows the same serial and MAC. The database, the certificate and
-  the MES payload agree with the board.
-* Pulling the USB cable at any step leaves a recorded safe state, and the next
-  run on that board recovers it.
-* The same flow passes in the simulator and on hardware with the same host code.
+---
+
+## 4. Design decisions to settle first
+
+Record each decision in `docs/decisions.md` (create it) before writing the
+code that depends on it. The recommendation is what this brief assumes.
+
+| ID | Question | Options | Recommendation |
+|---|---|---|---|
+| D-1 | How does HWVAL run during EOL? | **(a) Bench mode:** `nDBANK = 1`, raw HWVAL ELF at `0x08000000`, then switch to product option bytes (today). **(b) Under BOOT:** product option bytes once; HWVAL as a signed slot-B image; the product in slot A. | **(a) now, (b) as the target**, switched per profile (`test_mode: bench | under_boot`) once HWVAL under BOOT passes its own suite on a board 20 times in a row. (b) removes one option-byte flip and one mass erase per unit (R9). |
+| D-2 | What is in slot B of a shipped unit? | empty; a copy of the factory image; HWVAL superseded by the floor | **Empty** (erased, no metadata) for flow (a). For flow (b), HWVAL signed with counter **0** and every product image with counter **≥ 1**: once the factory image is CONFIRMED the floor is ≥ 1 and HWVAL can never boot again. Erase slot B anyway if line time allows; the profile decides (`slot_b_after_test: erase | leave_superseded`). |
+| D-3 | Who writes CONFIRMED for the factory image? | the station (SWD metadata); the firmware itself on first boot | **The station**, via the factory HEX, so the floor is set deterministically and the first boot is not a trial. The boot check then proves the image really starts. |
+| D-4 | Security-counter policy | free; per product line | Factory image counter = the product line's current counter, pinned in the profile (`signing.security_counter`). The profile tool refuses a lower counter than the previous released profile of the same product. HWVAL counter 0 (D-2). |
+| D-5 | Signing at the station? | sign on the station; sign in release CI | **Release CI only.** The station verifies. Product private keys live in an HSM or a CI secret; never on a line PC. |
+| D-6 | Debug-UART capture | none; optional; mandatory | **Optional per fixture** (needs a USB-UART on PG14 in the fixture). When present, the boot log is stored with the run and shown on failures. |
+
+---
+
+## 5. Target architecture
+
+### 5.1 Shared host library, one source of truth (fixes R2, R7, R11)
+
+```
+bootloader  ──make package-hwlink──►  dist/hwlink-bundle/   (schema, generated
+                                                              Python, mkimage.py,
+                                                              boot_layout.h, runtime)
+                                           │
+factory-station/src/hostkit/  ◄──vendored, pinned by hash────┘
+   protocol/   COBS framing, codec (minor 3), generated code from the bundle
+   images.py   v1 + v2 headers, signature + SHA-256 verify (public key only)
+   layout.py   generated from boot_layout.h, never hand-edited
+   boot.py     update / activate / wait / catch with the listen-window rules
+   swd.py      OpenOCD session per fixture (existing openocd.py, cleaned)
+```
+
+* Rename `src/hostcore` to `src/hostkit` only if the rename is cheap; the
+  name matters less than the rule that **generated and vendored parts are
+  never edited by hand** (`scripts/update_hostkit.py` regenerates them from
+  the bundle and records its hash in `src/hostkit/BUNDLE`).
+* `validation-gui` and `bootloader/tools/flash_gui.py` may adopt the same
+  library later; out of scope here, but do not add station-only behaviour to
+  modules that belong in the shared layer.
+
+### 5.2 Station core: a step pipeline with ports
+
+```
+Recipe (from the profile)  ─►  Pipeline  ─►  Step 1 … Step n
+                                  │             │ uses only ports, never a concrete driver
+                                  ▼             ▼
+                               RunContext   Ports: Swd, Link, Boot, Power, Fixture,
+                               (facts,      Scanner, Printer, Mes, Store, DebugLog,
+                                safe state)  Clock, Operator
+                                              │
+                         real adapters ◄──────┴──────► simulator adapters
+```
+
+* `Step` (new `src/hwval_factory/steps/`): one class per step with `name`,
+  `requires` (facts it needs in `RunContext`), `provides`, `run(ctx) ->
+  StepResult`, `safe_state_after`, `retry` policy, `timeout_s`, and
+  `standalone: bool` (whether it can run as a single tool).
+* `Pipeline`: runs a recipe, handles retries, abort, power loss, the safe
+  state record and per-step timing. It replaces the control flow in
+  `Station` without changing the database schema (add columns only through
+  the existing migration mechanism).
+* `RunContext`: typed facts (UID, option bytes before/after, images and
+  hashes, key id, floor, serial, MAC, test results, calibration, boot log)
+  instead of the free-form `ctx.metadata` dict. Persist it with the run.
+* Ports are `typing.Protocol` classes. Real and simulated adapters implement
+  them. Transport choices (`app_load: swd | boot`, `test_mode`) select a
+  step or an adapter, never an `if` inside a step.
+
+### 5.3 Single tools are steps run alone (fixes R12)
+
+New CLI shape (keep `--cli` working as an alias for one release):
+
+```
+hwval-factory run      --fixture F1 [--pcb-serial …]          # full recipe
+hwval-factory tool probe       --fixture F1                   # SWD + VCP + Hello, step by step
+hwval-factory tool identify    --fixture F1                   # IDs, UID, option bytes, RDP, floor
+hwval-factory tool erase       --fixture F1 --confirm         # mass erase (refused at RDP>0)
+hwval-factory tool program-boot     --fixture F1 --profile P
+hwval-factory tool program-factory  --fixture F1 --profile P  # factory HEX + verify
+hwval-factory tool load-app    --fixture F1 IMG [--via boot|swd]
+hwval-factory tool test        --fixture F1 [--tests 'ADC.*']
+hwval-factory tool identity    --fixture F1 read|write|verify
+hwval-factory tool boot-check  --fixture F1
+hwval-factory tool protect     --fixture F1 --profile P
+hwval-factory tool recover     --fixture F1 [--catch|--unlock-rdp --reason …]   # supervisor
+hwval-factory tool capture-log --fixture F1 --seconds 10      # debug UART (D-6)
+hwval-factory label reprint RUN_ID | export … | certificate RUN_ID
+```
+
+* Every tool goes through the same `Step` and ports as the full run, writes
+  an audit record with the operator and the role check, and has `--json`
+  output with the same exit codes as today (0 pass, 1 fail, 2 error).
+* The engineer UI gets a **Tools** page that lists the standalone steps per
+  fixture, with the same confirmations (typed confirmation for erase,
+  protect and recover).
+
+---
+
+## 6. Target EOL flow
+
+### 6.1 Flow A — bench-mode test (D-1 a), the first production flow
+
+| # | Step | Port | Success | Safe state after | On failure |
+|---|---|---|---|---|---|
+| 1 | **scan** PCB barcode and work order | Scanner | unit bound to fixture | `scanned` | operator re-scans |
+| 2 | **identify**: DEV_ID `0x451`, REV_ID in profile, UID, flash 2048 KB, OPTCR/OPTCR1, RDP | Swd | matches profile | `identified` | FAIL (wrong part) |
+| 3 | **bench config**: `nDBANK = 1`, mass erase (refuse if RDP > 0 unless rework) | Swd | read back | `bench` | ERROR, recovery tool |
+| 4 | **load HWVAL** ELF at `0x08000000`, verify, reset | Swd | verify OK | `test_loaded` | retry once |
+| 5 | **link up**: open VCP, send `mode link` at the CLI, wait for HWLINK `HelloReply` role HWVAL; cross-check UID | Link | same UID | `linked` | ERROR with cause (VCP missing, no CLI prompt, …) |
+| 6 | **test**: `ListTests`, `Run` the plan, prompts ⇄ answers, collect results and measurements | Link + Operator | all PASS | `tested` | FAIL with test id, value, limit |
+| 7 | **calibrate** from named measurements | — | values in range | — | FAIL |
+| 8 | **product config**: `nDBANK = 0`, `nDBOOT = 1`, `BOOT_ADD0`, software watchdogs; mass erase | Swd | read back | `product_blank` | ERROR, recovery tool |
+| 9 | **program factory HEX** (BOOT + slot A + metadata; §6.3) and verify by hash | Swd | verify OK | `programmed` | retry once |
+| 10 | **identity**: allocate serial/MAC, build `PRV1`, write sector 13, read back | Swd + Store | byte match | `personalised` | FAIL, serial/MAC released |
+| 11 | **boot check** (§6.4) | Swd + Link (+ DebugLog) | app CONFIRMED in A, identity, version, key id, floor | `boot_checked` | FAIL with BOOT log |
+| 12 | **protect**: BOR, WRP BOOT (sectors 0–1) + identity (bank 2 sector 13), RDP 1; power-cycle; read back | Swd + Power | as profiled | `protected` | ERROR, supervisor |
+| 13 | **post-protect boot check** (short form of 11) | Link | app answers | — | ERROR |
+| 14 | **label** | Printer | printed or queued | — | WARN, reprint tool |
+| 15 | **record** and queue for MES | Store + Mes | committed | `done` | ERROR, retry from queue |
+
+### 6.2 Flow B — test under BOOT (D-1 b), the target once HWVAL is ready
+
+Steps 3–4 and 8 collapse into one product configuration at the start:
+
+```
+identify → product config + mass erase (once) → program test HEX:
+   BOOT + slot A = factory image (counter ≥ 1, CONFIRMED)
+        + slot B = HWVAL (counter 0, ACTIVATED with a higher sequence, not confirmed)
+→ reset: BOOT boots HWVAL from B on trial → link up → test → calibrate
+→ HWVAL stops kicking / station resets: trial fails or the station marks B REJECTED
+   (decide in P3-03), BOOT falls back to A (CONFIRMED)
+→ identity → boot check → (erase slot B per D-2) → protect → label → record
+```
+
+Prerequisites: P3-01 to P3-04. Do not start Flow B work before Flow A
+passes on hardware.
+
+### 6.3 Factory image (fixes R1, R3, R5, R6, R10)
+
+* Built **offline by the profile tool**, never on the line:
+  `hwval-profile build-factory --boot boot.hex --app app.img [--hwval hwval.img]`
+  calls `bootloader/tools/mkimage.py --factory-hex` from the bundle and pins
+  the result's SHA-256 in the manifest.
+* Profile tool checks, all of which must pass or the build is refused:
+  1. the app header is **version 2**, its signature verifies with the
+     profile's public key (`signing.public_key`), and its `key_id` equals the
+     id of that key;
+  2. the 64-byte public key is **found verbatim inside the BOOT image**
+     (proves BOOT trusts it); production profiles refuse the published
+     development key (id `0xfaa7171b`) unless `allow_development_key: true`
+     and the profile is marked non-production;
+  3. the app's `security_counter` equals `signing.security_counter` and is
+     not lower than the previous released profile of the same product (D-4);
+  4. load address, size and entry point fit slot A (layout from the bundle).
+* On the line the station verifies the HEX hash, programs it in one
+  `flash write_image erase`, verifies, and records the factory image hash,
+  key id and counter in the run.
+
+### 6.4 Boot check without the listen-window hazard (fixes R4, R13)
+
+1. Reset over SWD.
+2. **Wait 2.0 s before the first Hello** (BOOT's 500 ms window plus its image
+   checks; make it a named constant shared with `bootctl.BOOT_SETTLE_S`).
+3. Hello until the application answers (role APPLICATION/DEMO/APP).
+4. If BOOT answers instead: read `BootInfo`. If an active slot is valid, the
+   Hello caught the window: send `Reset`, wait 2.0 s, retry, at most 3 times
+   (the same rule as `bootctl.wait_for_confirmation`). If no slot is valid,
+   FAIL with BOOT's per-slot detail (`image is not signed`, `bad signature`,
+   `superseded`, …), which is exactly what an operator needs.
+5. From the application: `GetStatus` → slot A, trial CONFIRMED, UID equals
+   step 2, version equals the profile; identity in `HelloReply.detail`
+   equals what step 10 wrote.
+6. Read identity and metadata back over SWD (existing B-14 checks).
+7. Read `BootInfo` once in BOOT when the run needs it (through `catch` with
+   an SWD reset, not `EnterBootloader`, so the application is not left in
+   BOOT): `signed_images = true`, `key_id` equals the profile key,
+   `security_floor` equals the factory counter.
+8. If a debug UART is configured (D-6), attach the captured BOOT and
+   application log to the step result; on failure show its last 20 lines.
+
+---
+
+## 7. Task list
+
+Priority: **P0** blocks a real board passing; **P1** needed on the line;
+**P2** scale, audit, comfort. Do the phases in order; inside a phase, the
+listed order.
+
+### Phase P0 — Make the current flow correct against today's firmware
+
+| ID | Task | Files | Done when |
+|---|---|---|---|
+| P0-01 | **Dev environment.** Add `pytest-qt` and `flatbuffers` to the dev/test extras; `make dev` creates a venv that runs every test offscreen. | `pyproject.toml`, `Makefile` | Fresh clone: `make dev && QT_QPA_PLATFORM=offscreen make test` passes with 0 errors. |
+| P0-02 | **Vendor the bootloader bundle.** Add `scripts/update_hostkit.py` that runs `make -C ../bootloader package-hwlink` (or takes a bundle path), copies schema, generated Python, `mkimage.py`, `boot_layout.h`, runtime into `src/hostcore/vendor/` and writes `BUNDLE` with the bundle's hash. Replace the hand-kept `protocol/hwlink.fbs` and generated code with the vendored ones. | `scripts/`, `src/hostcore/protocol/` | Schema in the station is byte-identical to `bootloader/protocol/hwlink.fbs`; generated code comes only from the bundle. |
+| P0-03 | **Protocol minor 3.** Codec: decode `AUTH_FAILED`, `ROLLBACK`, `BootInfo` minor 2/3 fields, `BootSlotInfo.security_counter`; encode `ImageHeader.header_crc32` and `extension` (bytes 88–251) and `UpdateBegin.force`. Announce minor 3 in Hello. Map every `Nak` error to a human message (copy `bootctl.error_name` wording). | `src/hostcore/protocol/codec.py`, `hwlink.py` | Round-trip tests for every new field; a v2 image uploaded to the simulator over BOOT keeps its signature bytes intact. |
+| P0-04 | **Image header v2.** `images.py` parses v1 and v2; for v2 exposes `security_counter`, `key_id`, `image_sha256`, `signature`, and verifies the signature (P-256, public key PEM, `cryptography`) and the SHA-256 of the body. Production profiles refuse v1. Keep `.hex`/`.elf`/`.bin` support for BOOT and HWVAL. | `src/hostcore/images.py`, `layout.py` | Accepts `mkimage --sign` output; rejects: v1 in a production profile, wrong key, flipped signature byte, body changed after signing, header CRC error. Test vectors come from `bootloader/tests/host/test_vectors.c` and fresh `mkimage` runs. |
+| P0-05 | **Metadata v2.** Metadata records written by the station (or taken from the factory HEX) must match what BOOT expects for a v2 header; the CONFIRMED record's effect on the floor is computed and stored as `ctx.expected_floor`. | `images.py` (`to_metadata_records`), `station.py` | Simulator BOOT (C-03 already exists) selects slot A from station-written metadata of a signed image; floor reported equals the image counter. |
+| P0-06 | **Listen-window-safe boot check** exactly as §6.4 steps 1–4. Extract the logic into `hostcore/boot.py` (`wait_for_application(session, swd, timeout)`), reuse it everywhere the station resets then talks (boot check, post-protect check, BOOT load path). | `station.py:1518, :1790`, new `hostcore/boot.py` | Simulator test where BOOT answers the first Hello passes after one `Reset`; a board with no valid slot fails with BOOT's slot detail. Hardware: 20 consecutive boot checks on a good board, 0 false failures. |
+| P0-07 | **BOOT load path on minor 3.** `app_load: boot` sends the full v2 header with `extension`; handles `AUTH_FAILED`/`ROLLBACK` with clear text; never sets `force` in production. | `station.py` program step, `hwlink.py` | Simulator: signed image loads; unsigned refused with "image is not signed"; lower counter refused with "below the floor N". |
+| P0-08 | **Contract tests that bite.** Compare against the **bootloader**: schema identical (P0-02), `PROTOCOL_MINOR`, header version 2 and offsets 88/92/96/128/252 from `mkimage.py`, layout constants, metadata offsets, identity area; fail if `validation-firmware` or an app has a schema whose minor is lower than the station's expectation for the messages it uses. | `tests/test_contracts.py` | Reverting P0-03 or P0-04 makes the contract tests fail. |
+| P0-09 | **Release a real signed profile** `profiles/sc767-1.1.0`: current `boot.hex` (debug UART on or off per decision; record which), signed factory app (dev key allowed, profile marked `production: false`), HWVAL ELF for bench mode, public key PEM, key id, counter. Keep `sc767-1.0.0` for history, marked retired. | `profiles/`, profile tool | `hwval-profile verify profiles/sc767-1.1.0` passes all checks of §6.3; the simulator runs it to PASS. |
+| P0-10 | **HWVAL link-up that works on silicon.** Before `mode link`: drain the CLI, wait for the prompt or the boot suite to finish (bounded), then send `mode link` and wait for `HelloReply`; if the suite is running, use `catch`-style persistence (resend `mode link` every 500 ms up to the profile's `hello_timeout_s`). Log every VCP byte received during link-up into the step result. | `station.py` test step, `hwlink.py` | On the bench board the station reaches HWLINK with HWVAL from a cold boot 10 times in a row; the log shows the CLI banner and the switch. |
+| P0-11 | **First full hardware PASS (Flow A).** Run `examples/station.real.example.yaml` + `sc767-1.1.0` on the bench board from blank. Record the run in `docs/hardware-verification.md` (date, ST-LINK serial, UID, every step's duration, option bytes before/after, factory image hash, key id, floor). | docs | One recorded end-to-end PASS on silicon, then a second run on the same (now protected) board through the rework path. |
+
+### Phase P1 — Rethink: pipeline, factory HEX, single tools
+
+| ID | Task | Files | Done when |
+|---|---|---|---|
+| P1-01 | **Ports.** Define `typing.Protocol` ports (§5.2) and adapt the existing OpenOCD, HWLINK, power, inputs, scanner, printer, MES and DB code behind them without behaviour change. | new `src/hwval_factory/ports/` | All existing tests pass unchanged; no step imports a concrete adapter. |
+| P1-02 | **RunContext and Step.** Typed `RunContext`; `Step` base class; move each `_step_*` method into its own module under `steps/`, one at a time, each move with its tests green. Split transport branches into separate steps or adapters (`ProgramFactoryHex`, `LoadAppViaBoot`). | `station.py` → `steps/*.py`, `pipeline.py` | `station.py` keeps only fixture/worker management and is under 600 lines; every step file has a unit test with simulated ports. |
+| P1-03 | **Recipes.** The profile lists the steps (`recipe: [scan, identify, bench_config, …]`) with per-step options; the profile tool validates the recipe against step `requires/provides`. The default recipe equals Flow A. | `profile.py`, `pipeline.py` | A recipe that uses a fact before a step provides it is refused at profile load. |
+| P1-04 | **Factory HEX** (§6.3): `hwval-profile build-factory`, manifest `images.factory`, step `program_factory` (one write + verify), metadata/floor facts recorded. Keep the per-record path as a fallback step for development profiles only. | `profile_tool.py`, `steps/program.py` | Program step time measured before/after and recorded; hardware PASS with the HEX path. |
+| P1-05 | **Signing checks in the profile tool** (§6.3 items 1–4) and `hwval-profile verify` printing key id, counter, BOOT key match and development-key status. | `profile_tool.py`, `profile.py` | Each refusal has a test (wrong key, dev key in production, lower counter, v1 app, BOOT without the key). |
+| P1-06 | **Single tools** (§5.3): `hwval-factory tool …` subcommands built on the steps, role checks, audit, `--json`, exit codes; keep the old flags as deprecated aliases for one release. | `cli.py` | Every tool in §5.3 has a CLI test against the simulator; `--help` lists them grouped by role. |
+| P1-07 | **Engineer Tools page** in the UI: per fixture, run any standalone step, see its log and result; typed confirmation for erase/protect/recover. | `ui/` | pytest-qt test drives probe, identify and boot-check on a simulated fixture. |
+| P1-08 | **Recovery tool**: catch BOOT (SWD reset + 50 ms Hello, like `bootctl catch`), unstick a trial (reset and wait for the trial to end, staying off the port), RDP 1 → 0 with mass erase (supervisor, reason code, audit), connect-under-reset. | `steps/recover.py` | Each recovery path tested in the simulator; the catch path verified on hardware. |
+| P1-09 | **Failure text** for every step: cause, measured vs expected, suggested action, and (when D-6 is enabled) the last debug-log lines. | steps, `ui/tiles.py` | No step can end with a generic "station error" (test asserts every `StepFailure` has a cause and an action). |
+| P1-10 | **Anti-rollback awareness**: identify reads the floor when BOOT is reachable; rework refuses a profile whose counter is below the unit's floor, with the reason; record floor before/after. | `steps/identify.py`, rework flow | Simulator test: reworking a floor-2 unit with a counter-1 profile is refused before erasing anything. |
+
+### Phase P2 — Line readiness
+
+| ID | Task | Done when |
+|---|---|---|
+| P2-01 | **Debug-UART capture (D-6).** Station config per fixture: `debug_uart: /dev/serial/by-id/…`. A `DebugLog` port reads it in a thread for the whole run, timestamps lines, splits them by tag, stores them with the run, shows them in the fixture detail and in failure text. | A forced boot-check failure in the simulator shows the BOOT lines that explain it; on hardware the BOOT and app start lines are stored with the run. |
+| P2-02 | **Probe and fixture management**: bind ST-LINK serial ↔ VCP ↔ debug UART ↔ power port ↔ inputs per fixture, by USB serial on Linux and Windows; warn on old ST-LINK firmware; one OpenOCD process per fixture with fixed ports and restart on crash. | Eight simulated fixtures and two real ones run in parallel without port clashes. |
+| P2-03 | **Power and safety**: power-cycle after option bytes and after protection through the Power port; brown-out during an option-byte write recorded as `UNKNOWN_CONFIG` and routed to the recovery tool. | Fault-injection test for each power-loss point. |
+| P2-04 | **Cycle-time budget**: record per-step durations; dashboard shows median and p95 per step per fixture; profile may set a budget per step (warn above it). | Dashboard numbers match the database. |
+| P2-05 | **Golden board and maintenance** (existing F-05/F-06) moved onto the pipeline: the self-test is a recipe. | Production blocked when the self-test is due or failed. |
+| P2-06 | **Docs**: operator, supervisor and engineering guides rewritten for Flow A, single tools and recovery; README states what is verified on hardware. | Each guide's procedures were executed once and the date recorded. |
+
+### Phase P3 — Flow B (test under BOOT)
+
+| ID | Task | Done when |
+|---|---|---|
+| P3-01 | **HWVAL readiness gate** (in `validation-firmware`, by its owner): HWVAL as a signed slot image passes its boot suite under BOOT 20 times in a row, confirms within the trial window, answers HWLINK in link mode during the trial. | Recorded on hardware. |
+| P3-02 | **`mkimage --factory-hex` with an empty slot or a non-confirmed slot** (bootloader repo): allow `--slot-b` to be omitted and allow "activated, not confirmed" for the test slot with a higher sequence. Add host tests. | Bootloader `make test` passes with the new cases. |
+| P3-03 | **Ending the test image**: choose between (i) the station writes REJECTED for slot B over SWD, (ii) HWVAL reports done and stops kicking so the trial fails, (iii) erase slot B and metadata B. Prototype each on the simulator, measure on hardware, record the decision. | Decision recorded; chosen path tested. |
+| P3-04 | **Flow B recipe** and step changes; per-profile switch `test_mode: under_boot`. | Hardware PASS with Flow B; per-unit time and option-byte writes reduced and recorded. |
+
+### Phase P4 — Scale and audit (from the previous plan, still open)
+
+* Central database for several stations sharing one serial/MAC pool
+  (PostgreSQL), with the same allocation guarantees.
+* Nightly hardware-in-the-loop job on a Jenkins node with a NUCLEO-F767ZI:
+  Flow A, rework, protection, recovery.
+* Per-unit secrets (device keys) only after a separate threat model; never
+  in the DB, logs or exports.
+* Localisation and kiosk mode; stack-light output.
+
+---
+
+## 8. Verification
+
+### 8.1 Tests that must exist when you finish
+
+* Unit: codec minor 3 (every new field), image v1/v2 parse and signature
+  verification, metadata v2, floor computation, identity record, recipe
+  validation, every step with simulated ports.
+* Contract: §P0-08 against the bootloader and, when present, each firmware.
+* Simulator end-to-end: Flow A PASS; one test per failure path (wrong part,
+  test FAIL, signature refused, rollback refused, BOOT parked on the first
+  Hello, power loss in option bytes, identity mismatch, printer offline,
+  abort at every step); rework; recovery tools.
+* UI: pytest-qt for the operator flow, the Tools page and prompts.
+
+### 8.2 Simulator requirements added by this brief
+
+The simulated BOOT must implement: v2 signature and SHA-256 checks with the
+profile's public key, the floor, `AUTH_FAILED`/`ROLLBACK`, the 500 ms listen
+window (a Hello within 500 ms of reset parks it), trial counting with the
+3-start limit, and `BootInfo` minor 3 fields. The simulated HWVAL must start
+in CLI mode, run a boot suite during which it ignores HWLINK, and accept
+`mode link`.
+
+### 8.3 Hardware check (bench board)
+
+Board in the workspace: NUCLEO-F767ZI, ST-LINK `0671FF525171494867105524`,
+UID `280029000D51313035363730`, VCP `/dev/ttyACM0`. For each hardware task,
+record in `docs/hardware-verification.md`: the command, the date, the
+result, per-step durations and any deviation. After the run, the board must
+be left recoverable (document its final state).
+
+---
+
+## 9. Definition of done for the rethink
+
+* A blank board on fixture F1 reaches PASS with one scan, using a **signed**
+  factory image and a profile whose BOOT is proven to trust its key.
+* After the run: BOOT boots slot A; `bootctl info` (through `catch`) shows
+  `signed_images`, the profile's key id and the expected floor; the
+  application reports the provisioned serial and MAC; option bytes read back
+  as profiled with WRP on BOOT and identity, RDP 1.
+* 20 consecutive boot checks on a good board give no false failure (R4).
+* Every single tool in §5.3 works from the CLI and the Tools page with role
+  checks and audit records.
+* The same host code drives the simulator and the hardware; the contract
+  tests fail if the bootloader's schema, image format or layout changes.
+* `station.py` is reduced to fixture management; each step is its own
+  tested module.
+* Label, database, certificate and MES payload agree with the board.
