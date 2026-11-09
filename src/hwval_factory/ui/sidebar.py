@@ -8,16 +8,29 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
-from hostcore.theme import COLORS, icon
+from hostcore.theme import COLORS
+from hwval_factory.ui.bench.style import icon
 
 _NAV_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("station", "Station", "dashboard"),
     ("dashboard", "Dashboard", "chart"),
     ("history", "Unit history", "history"),
+    ("tools", "Tools", "settings"),
+)
+
+_BENCH_ITEMS: tuple[tuple[str, str, str], ...] = (
+    ("detect", "Detect", "probe"),
+    ("bootloader", "Bootloader", "flash"),
+    ("firmware", "Factory firmware", "firmware"),
+    ("device", "Device info", "info"),
+    ("sysinfo", "System info", "list"),
+    ("calibration", "Calibration", "sliders"),
+    ("diagnostics", "Diagnostics", "pulse"),
 )
 
 _ACTIONS: tuple[tuple[str, str, str], ...] = (
@@ -53,18 +66,35 @@ class Sidebar(QFrame):
         root.addWidget(self._brand(app_name, station_name, station_id))
         root.addSpacing(8)
 
-        root.addWidget(self._section_label("WORKSPACE"))
+        # The navigation scrolls when the window is short, so the footer stays put.
+        scroll = QScrollArea()
+        scroll.setObjectName("SidebarScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        inner = QWidget()
+        inner.setObjectName("SidebarScrollBody")
+        column = QVBoxLayout(inner)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(4)
+
         self._nav: dict[str, tuple[QPushButton, str]] = {}
+        column.addWidget(self._section_label("BENCH"))
+        for key, label, icon_name in _BENCH_ITEMS:
+            column.addWidget(self._nav_button(key, label, icon_name))
+
+        column.addSpacing(10)
+        column.addWidget(self._section_label("PRODUCTION"))
         for key, label, icon_name in _NAV_ITEMS:
-            button = self._nav_button(key, label, icon_name)
-            root.addWidget(button)
+            column.addWidget(self._nav_button(key, label, icon_name))
 
-        root.addSpacing(10)
-        root.addWidget(self._section_label("ACTIONS"))
+        column.addSpacing(10)
+        column.addWidget(self._section_label("ACTIONS"))
         for key, label, icon_name in _ACTIONS:
-            root.addWidget(self._action_button(key, label, icon_name))
-
-        root.addStretch(1)
+            column.addWidget(self._action_button(key, label, icon_name))
+        column.addStretch(1)
+        scroll.setWidget(inner)
+        root.addWidget(scroll, 1)
         root.addWidget(self._footer())
         self.set_active("station")
 

@@ -40,6 +40,15 @@ from hwval_factory.models import FixtureState, Role, RunKind
 from hwval_factory.profile import ProductProfile, list_profiles
 from hwval_factory.reports import certificate_pdf, export_csv, export_json
 from hwval_factory.station import Station, StationError
+from hwval_factory.ui.bench.pages_connect import (
+    BootloaderPage,
+    DetectPage,
+    DeviceInfoPage,
+    FirmwarePage,
+)
+from hwval_factory.ui.bench.pages_data import CalibrationPage, DiagnosticsPage, SysInfoPage
+from hwval_factory.ui.bench.state import BenchState
+from hwval_factory.ui.bench.style import apply_bench_style
 from hwval_factory.ui.dashboard import DashboardView
 from hwval_factory.ui.fixture_detail import FixtureDetailDialog
 from hwval_factory.ui.history import HistoryView
@@ -55,6 +64,7 @@ from hwval_factory.ui.supervisor import (
     import_profile_dialog,
 )
 from hwval_factory.ui.tiles import FixtureTile
+from hwval_factory.ui.tools import ToolsView
 
 
 class _FunctionThread(QThread):
@@ -144,7 +154,9 @@ class _SerialScannerThread(QThread):
     scanned = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, port: str, baudrate: int, prefix: str, suffix: str, parent: QObject | None = None) -> None:
+    def __init__(
+        self, port: str, baudrate: int, prefix: str, suffix: str, parent: QObject | None = None
+    ) -> None:
         super().__init__(parent)
         self.port = port
         self.baudrate = baudrate
@@ -284,15 +296,47 @@ class StationWindow(QMainWindow):
             labels_dir=self.config.labels_dir,
         )
         self.history.reprint_requested.connect(self.reprint_label)
+        self.tools = ToolsView(
+            self.station,
+            self._operator(),
+            lambda: self.auth.session.role if self.auth.session is not None else Role.OPERATOR,
+        )
+        apply_bench_style()
+        self.bench = BenchState(
+            Path(self.config.database).resolve().parent, simulate=bool(self.config.simulation)
+        )
+        self.bench_pages = {
+            "detect": DetectPage(self.bench),
+            "bootloader": BootloaderPage(self.bench),
+            "firmware": FirmwarePage(self.bench),
+            "device": DeviceInfoPage(self.bench),
+            "sysinfo": SysInfoPage(self.bench),
+            "calibration": CalibrationPage(self.bench),
+            "diagnostics": DiagnosticsPage(self.bench),
+        }
         self.pages.addWidget(self.station_page)
         self.pages.addWidget(self.dashboard)
         self.pages.addWidget(self.history)
-        self._section_keys = {0: "station", 1: "dashboard", 2: "history"}
+        self.pages.addWidget(self.tools)
+        for page in self.bench_pages.values():
+            self.pages.addWidget(page)
+            self.bench.changed.connect(page.on_state_changed)
+        self._section_keys = {0: "station", 1: "dashboard", 2: "history", 3: "tools"}
+        for offset, key in enumerate(self.bench_pages, start=4):
+            self._section_keys[offset] = key
         self._section_index = {value: key for key, value in self._section_keys.items()}
         self._section_titles = {
             "station": "Station",
             "dashboard": "Dashboard",
             "history": "Unit history",
+            "tools": "Tools",
+            "detect": "Detect",
+            "bootloader": "Bootloader",
+            "firmware": "Factory firmware",
+            "device": "Device info",
+            "sysinfo": "System info",
+            "calibration": "Calibration",
+            "diagnostics": "Diagnostics",
         }
         self.pages.currentChanged.connect(self._tab_changed)
         # Backwards-compatible alias for menus and event handlers.
@@ -425,11 +469,73 @@ class StationWindow(QMainWindow):
     def _build_menus(self) -> None:
         menu = self.menuBar()
         file_menu = menu.addMenu("&File")
+        self._action(
+            file_menu,
+            "Open Factory Database…",
+            lambda: self._open_bench_file("sysinfo", lambda page: page.csv_row.choose()),
+            "Ctrl+O",
+        )
+        self._action(
+            file_menu,
+            "Open Calibration File…",
+            lambda: self._open_bench_file("calibration", lambda page: page.file_row.choose()),
+            "Ctrl+Shift+O",
+        )
+        self._action(
+            file_menu,
+            "Open Diagnostic File…",
+            lambda: self._open_bench_file("diagnostics", lambda page: page.file_row.choose()),
+            "Ctrl+Alt+O",
+        )
+        file_menu.addSeparator()
         self._action(file_menu, "Export CSV…", self.export_csv)
         self._action(file_menu, "Export JSON…", self.export_json)
         self._action(file_menu, "Print certificate…", self.print_certificate)
         file_menu.addSeparator()
-        self._action(file_menu, "Quit", self.close, "Ctrl+Q")
+        quit_action = self._action(file_menu, "Quit", self.close, QKeySequence.StandardKey.Quit)
+        quit_action.setMenuRole(QAction.MenuRole.QuitRole)
+
+        edit_menu = menu.addMenu("&Edit")
+        for text, method, key in (
+            ("Undo", "undo", QKeySequence.StandardKey.Undo),
+            ("Redo", "redo", QKeySequence.StandardKey.Redo),
+            (None, None, None),
+            ("Cut", "cut", QKeySequence.StandardKey.Cut),
+            ("Copy", "copy", QKeySequence.StandardKey.Copy),
+            ("Paste", "paste", QKeySequence.StandardKey.Paste),
+            ("Select All", "selectAll", QKeySequence.StandardKey.SelectAll),
+        ):
+            if text is None:
+                edit_menu.addSeparator()
+                continue
+            self._action(edit_menu, text, lambda name=method: self._route_edit_action(name), key)
+
+        bench_menu = menu.addMenu("&Bench")
+        for section_key, (text, shortcut) in zip(
+            self.bench_pages,
+            (
+                ("Detect", "Ctrl+4"),
+                ("Bootloader", "Ctrl+5"),
+                ("Factory Firmware", "Ctrl+6"),
+                ("Device Info", "Ctrl+7"),
+                ("System Info", "Ctrl+8"),
+                ("Calibration", "Ctrl+9"),
+                ("Diagnostics", "Ctrl+0"),
+            ),
+            strict=True,
+        ):
+            self._action(
+                bench_menu, text, lambda section=section_key: self._show_section(section), shortcut
+            )
+        bench_menu.addSeparator()
+        self._action(bench_menu, "Refresh Detection", self.bench.refresh_detection, "Ctrl+R")
+        self.simulate_action = QAction("Simulated Board", self)
+        self.simulate_action.setCheckable(True)
+        self.simulate_action.setChecked(self.bench.simulate)
+        self.simulate_action.setShortcut(QKeySequence("Ctrl+Shift+M"))
+        self.simulate_action.triggered.connect(self.bench.set_simulate)
+        bench_menu.addAction(self.simulate_action)
+        self.bench.changed.connect(lambda: self.simulate_action.setChecked(self.bench.simulate))
 
         station_menu = menu.addMenu("&Station")
         self._action(station_menu, "Start all", self.start_all, "Ctrl+Shift+S")
@@ -457,22 +563,38 @@ class StationWindow(QMainWindow):
         self._action(view, "Dashboard", lambda: self.tabs.setCurrentIndex(1), "Ctrl+2")
         self._action(view, "Unit history", lambda: self.tabs.setCurrentIndex(2), "Ctrl+3")
         view.addSeparator()
+        self.sidebar_action = QAction("Show Sidebar", self)
+        self.sidebar_action.setCheckable(True)
+        self.sidebar_action.setChecked(True)
+        self.sidebar_action.setShortcut(QKeySequence("Ctrl+Alt+B"))
+        self.sidebar_action.toggled.connect(self.sidebar.setVisible)
+        view.addAction(self.sidebar_action)
+        view.addSeparator()
         self.kiosk_action = QAction("Kiosk mode", self)
         self.kiosk_action.setCheckable(True)
         self.kiosk_action.setShortcut(QKeySequence("Ctrl+Shift+K"))
         self.kiosk_action.triggered.connect(self.toggle_kiosk)
         view.addAction(self.kiosk_action)
 
+        window_menu = menu.addMenu("&Window")
+        self._action(window_menu, "Minimize", self.showMinimized, "Ctrl+M")
+        self._action(
+            window_menu,
+            "Zoom",
+            lambda: self.showNormal() if self.isMaximized() else self.showMaximized(),
+        )
+
         help_menu = menu.addMenu("&Help")
         self._action(help_menu, "User guide", self.open_guide, "F12")
-        self._action(help_menu, "About", self.about)
+        about_action = self._action(help_menu, "About", self.about)
+        about_action.setMenuRole(QAction.MenuRole.AboutRole)
 
     def _action(
         self,
         menu: QMenu,
         text: str,
         callback: Callable[..., Any],
-        shortcut: str | None = None,
+        shortcut: str | QKeySequence.StandardKey | None = None,
     ) -> QAction:
         action = QAction(text, self)
         if shortcut:
@@ -480,6 +602,17 @@ class StationWindow(QMainWindow):
         action.triggered.connect(lambda _checked=False: callback())
         menu.addAction(action)
         return action
+
+    def _route_edit_action(self, method_name: str | None) -> None:
+        """Edit-menu commands go to whichever widget has the keyboard focus."""
+        widget = QApplication.focusWidget()
+        method = getattr(widget, method_name or "", None)
+        if callable(method):
+            method()
+
+    def _open_bench_file(self, section: str, choose: Callable[[Any], None]) -> None:
+        self._show_section(section)
+        choose(self.bench_pages[section])
 
     def _build_shortcuts(self) -> None:
         for index, fixture in enumerate([f for f in self.config.fixtures if f.enabled][:8], 1):
@@ -794,6 +927,10 @@ class StationWindow(QMainWindow):
         if section is not None:
             self.sidebar.set_active(section)
             self.section_title.setText(self._section_titles.get(section, "Station"))
+        current = self.tabs.widget(index)
+        for bench_page in self.bench_pages.values():
+            if current is bench_page:
+                bench_page.on_shown()
         if self.tabs.widget(index) is self.dashboard:
             self.dashboard.set_work_orders([row["name"] for row in self.db.work_orders()])
             self.dashboard.refresh()
@@ -804,6 +941,8 @@ class StationWindow(QMainWindow):
         index = self._section_index.get(section)
         if index is not None:
             self.pages.setCurrentIndex(index)
+            if section == "tools":
+                self.tools.refresh()
 
     def _sidebar_action(self, action: str) -> None:
         callbacks: dict[str, Callable[[], Any]] = {
