@@ -33,26 +33,28 @@ class UpdateBegin(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from .ImageHeader import ImageHeader
+            from hostcore.protocol.generated.hwlink.ImageHeader import ImageHeader
             obj = ImageHeader()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
-def UpdateBeginStart(builder):
-    builder.StartObject(1)
+    # UpdateBegin
+    def Force(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
 
+def UpdateBeginStart(builder): builder.StartObject(2)
 def Start(builder):
-    UpdateBeginStart(builder)
-
-def UpdateBeginAddHeader(builder, header):
-    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(header), 0)
-
+    return UpdateBeginStart(builder)
+def UpdateBeginAddHeader(builder, header): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(header), 0)
 def AddHeader(builder, header):
-    UpdateBeginAddHeader(builder, header)
-
-def UpdateBeginEnd(builder):
-    return builder.EndObject()
-
+    return UpdateBeginAddHeader(builder, header)
+def UpdateBeginAddForce(builder, force): builder.PrependBoolSlot(1, force, 0)
+def AddForce(builder, force):
+    return UpdateBeginAddForce(builder, force)
+def UpdateBeginEnd(builder): return builder.EndObject()
 def End(builder):
     return UpdateBeginEnd(builder)

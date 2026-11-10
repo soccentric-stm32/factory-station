@@ -49,32 +49,18 @@ class ButtonEvent(object):
             return self._tab.Get(flatbuffers.number_types.Uint16Flags, o + self._tab.Pos)
         return 0
 
-def ButtonEventStart(builder):
-    builder.StartObject(3)
-
+def ButtonEventStart(builder): builder.StartObject(3)
 def Start(builder):
-    ButtonEventStart(builder)
-
-def ButtonEventAddPress(builder, press):
-    builder.PrependUint8Slot(0, press, 1)
-
+    return ButtonEventStart(builder)
+def ButtonEventAddPress(builder, press): builder.PrependUint8Slot(0, press, 1)
 def AddPress(builder, press):
-    ButtonEventAddPress(builder, press)
-
-def ButtonEventAddPattern(builder, pattern):
-    builder.PrependUint8Slot(1, pattern, 0)
-
+    return ButtonEventAddPress(builder, press)
+def ButtonEventAddPattern(builder, pattern): builder.PrependUint8Slot(1, pattern, 0)
 def AddPattern(builder, pattern):
-    ButtonEventAddPattern(builder, pattern)
-
-def ButtonEventAddPeriodMs(builder, periodMs):
-    builder.PrependUint16Slot(2, periodMs, 0)
-
+    return ButtonEventAddPattern(builder, pattern)
+def ButtonEventAddPeriodMs(builder, periodMs): builder.PrependUint16Slot(2, periodMs, 0)
 def AddPeriodMs(builder, periodMs):
-    ButtonEventAddPeriodMs(builder, periodMs)
-
-def ButtonEventEnd(builder):
-    return builder.EndObject()
-
+    return ButtonEventAddPeriodMs(builder, periodMs)
+def ButtonEventEnd(builder): return builder.EndObject()
 def End(builder):
     return ButtonEventEnd(builder)

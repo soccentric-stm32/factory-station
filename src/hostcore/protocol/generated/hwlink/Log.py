@@ -42,26 +42,15 @@ class Log(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
-def LogStart(builder):
-    builder.StartObject(2)
-
+def LogStart(builder): builder.StartObject(2)
 def Start(builder):
-    LogStart(builder)
-
-def LogAddLevel(builder, level):
-    builder.PrependUint8Slot(0, level, 0)
-
+    return LogStart(builder)
+def LogAddLevel(builder, level): builder.PrependUint8Slot(0, level, 0)
 def AddLevel(builder, level):
-    LogAddLevel(builder, level)
-
-def LogAddText(builder, text):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(text), 0)
-
+    return LogAddLevel(builder, level)
+def LogAddText(builder, text): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(text), 0)
 def AddText(builder, text):
-    LogAddText(builder, text)
-
-def LogEnd(builder):
-    return builder.EndObject()
-
+    return LogAddText(builder, text)
+def LogEnd(builder): return builder.EndObject()
 def End(builder):
     return LogEnd(builder)

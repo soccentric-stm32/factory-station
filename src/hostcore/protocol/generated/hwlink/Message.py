@@ -45,26 +45,15 @@ class Message(object):
             return obj
         return None
 
-def MessageStart(builder):
-    builder.StartObject(2)
-
+def MessageStart(builder): builder.StartObject(2)
 def Start(builder):
-    MessageStart(builder)
-
-def MessageAddBodyType(builder, bodyType):
-    builder.PrependUint8Slot(0, bodyType, 0)
-
+    return MessageStart(builder)
+def MessageAddBodyType(builder, bodyType): builder.PrependUint8Slot(0, bodyType, 0)
 def AddBodyType(builder, bodyType):
-    MessageAddBodyType(builder, bodyType)
-
-def MessageAddBody(builder, body):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(body), 0)
-
+    return MessageAddBodyType(builder, bodyType)
+def MessageAddBody(builder, body): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(body), 0)
 def AddBody(builder, body):
-    MessageAddBody(builder, body)
-
-def MessageEnd(builder):
-    return builder.EndObject()
-
+    return MessageAddBody(builder, body)
+def MessageEnd(builder): return builder.EndObject()
 def End(builder):
     return MessageEnd(builder)

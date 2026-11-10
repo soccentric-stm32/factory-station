@@ -126,98 +126,61 @@ class BootSlotInfo(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
-def BootSlotInfoStart(builder):
-    builder.StartObject(14)
+    # BootSlotInfo
+    def SecurityCounter(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(32))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
 
+def BootSlotInfoStart(builder): builder.StartObject(15)
 def Start(builder):
-    BootSlotInfoStart(builder)
-
-def BootSlotInfoAddSlot(builder, slot):
-    builder.PrependUint8Slot(0, slot, 0)
-
+    return BootSlotInfoStart(builder)
+def BootSlotInfoAddSlot(builder, slot): builder.PrependUint8Slot(0, slot, 0)
 def AddSlot(builder, slot):
-    BootSlotInfoAddSlot(builder, slot)
-
-def BootSlotInfoAddPresent(builder, present):
-    builder.PrependBoolSlot(1, present, 0)
-
+    return BootSlotInfoAddSlot(builder, slot)
+def BootSlotInfoAddPresent(builder, present): builder.PrependBoolSlot(1, present, 0)
 def AddPresent(builder, present):
-    BootSlotInfoAddPresent(builder, present)
-
-def BootSlotInfoAddValid(builder, valid):
-    builder.PrependBoolSlot(2, valid, 0)
-
+    return BootSlotInfoAddPresent(builder, present)
+def BootSlotInfoAddValid(builder, valid): builder.PrependBoolSlot(2, valid, 0)
 def AddValid(builder, valid):
-    BootSlotInfoAddValid(builder, valid)
-
-def BootSlotInfoAddPending(builder, pending):
-    builder.PrependBoolSlot(3, pending, 0)
-
+    return BootSlotInfoAddValid(builder, valid)
+def BootSlotInfoAddPending(builder, pending): builder.PrependBoolSlot(3, pending, 0)
 def AddPending(builder, pending):
-    BootSlotInfoAddPending(builder, pending)
-
-def BootSlotInfoAddConfirmed(builder, confirmed):
-    builder.PrependBoolSlot(4, confirmed, 0)
-
+    return BootSlotInfoAddPending(builder, pending)
+def BootSlotInfoAddConfirmed(builder, confirmed): builder.PrependBoolSlot(4, confirmed, 0)
 def AddConfirmed(builder, confirmed):
-    BootSlotInfoAddConfirmed(builder, confirmed)
-
-def BootSlotInfoAddRejected(builder, rejected):
-    builder.PrependBoolSlot(5, rejected, 0)
-
+    return BootSlotInfoAddConfirmed(builder, confirmed)
+def BootSlotInfoAddRejected(builder, rejected): builder.PrependBoolSlot(5, rejected, 0)
 def AddRejected(builder, rejected):
-    BootSlotInfoAddRejected(builder, rejected)
-
-def BootSlotInfoAddSequence(builder, sequence):
-    builder.PrependUint32Slot(6, sequence, 0)
-
+    return BootSlotInfoAddRejected(builder, rejected)
+def BootSlotInfoAddSequence(builder, sequence): builder.PrependUint32Slot(6, sequence, 0)
 def AddSequence(builder, sequence):
-    BootSlotInfoAddSequence(builder, sequence)
-
-def BootSlotInfoAddTrialCount(builder, trialCount):
-    builder.PrependUint8Slot(7, trialCount, 0)
-
+    return BootSlotInfoAddSequence(builder, sequence)
+def BootSlotInfoAddTrialCount(builder, trialCount): builder.PrependUint8Slot(7, trialCount, 0)
 def AddTrialCount(builder, trialCount):
-    BootSlotInfoAddTrialCount(builder, trialCount)
-
-def BootSlotInfoAddVersion(builder, version):
-    builder.PrependUint32Slot(8, version, 0)
-
+    return BootSlotInfoAddTrialCount(builder, trialCount)
+def BootSlotInfoAddVersion(builder, version): builder.PrependUint32Slot(8, version, 0)
 def AddVersion(builder, version):
-    BootSlotInfoAddVersion(builder, version)
-
-def BootSlotInfoAddBuildTimestamp(builder, buildTimestamp):
-    builder.PrependUint32Slot(9, buildTimestamp, 0)
-
+    return BootSlotInfoAddVersion(builder, version)
+def BootSlotInfoAddBuildTimestamp(builder, buildTimestamp): builder.PrependUint32Slot(9, buildTimestamp, 0)
 def AddBuildTimestamp(builder, buildTimestamp):
-    BootSlotInfoAddBuildTimestamp(builder, buildTimestamp)
-
-def BootSlotInfoAddGitCommit(builder, gitCommit):
-    builder.PrependUOffsetTRelativeSlot(10, flatbuffers.number_types.UOffsetTFlags.py_type(gitCommit), 0)
-
+    return BootSlotInfoAddBuildTimestamp(builder, buildTimestamp)
+def BootSlotInfoAddGitCommit(builder, gitCommit): builder.PrependUOffsetTRelativeSlot(10, flatbuffers.number_types.UOffsetTFlags.py_type(gitCommit), 0)
 def AddGitCommit(builder, gitCommit):
-    BootSlotInfoAddGitCommit(builder, gitCommit)
-
-def BootSlotInfoAddName(builder, name):
-    builder.PrependUOffsetTRelativeSlot(11, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
-
+    return BootSlotInfoAddGitCommit(builder, gitCommit)
+def BootSlotInfoAddName(builder, name): builder.PrependUOffsetTRelativeSlot(11, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
 def AddName(builder, name):
-    BootSlotInfoAddName(builder, name)
-
-def BootSlotInfoAddImageSize(builder, imageSize):
-    builder.PrependUint32Slot(12, imageSize, 0)
-
+    return BootSlotInfoAddName(builder, name)
+def BootSlotInfoAddImageSize(builder, imageSize): builder.PrependUint32Slot(12, imageSize, 0)
 def AddImageSize(builder, imageSize):
-    BootSlotInfoAddImageSize(builder, imageSize)
-
-def BootSlotInfoAddDetail(builder, detail):
-    builder.PrependUOffsetTRelativeSlot(13, flatbuffers.number_types.UOffsetTFlags.py_type(detail), 0)
-
+    return BootSlotInfoAddImageSize(builder, imageSize)
+def BootSlotInfoAddDetail(builder, detail): builder.PrependUOffsetTRelativeSlot(13, flatbuffers.number_types.UOffsetTFlags.py_type(detail), 0)
 def AddDetail(builder, detail):
-    BootSlotInfoAddDetail(builder, detail)
-
-def BootSlotInfoEnd(builder):
-    return builder.EndObject()
-
+    return BootSlotInfoAddDetail(builder, detail)
+def BootSlotInfoAddSecurityCounter(builder, securityCounter): builder.PrependUint32Slot(14, securityCounter, 0)
+def AddSecurityCounter(builder, securityCounter):
+    return BootSlotInfoAddSecurityCounter(builder, securityCounter)
+def BootSlotInfoEnd(builder): return builder.EndObject()
 def End(builder):
     return BootSlotInfoEnd(builder)

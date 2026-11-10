@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import subprocess
 import sys
 import tarfile
 import zipfile
@@ -22,7 +23,10 @@ from pathlib import Path
 
 import yaml
 
+from hostcore import layout
+from hostcore.images import key_id, load_key, public_point, sha256_file
 from hwval_factory.profile import (
+    _version_tuple,
     generate_signing_key,
     load_profile,
     manifest_for_directory,
@@ -124,6 +128,29 @@ def _sign(args: argparse.Namespace) -> int:
     return 0
 
 
+def _previous_counter(profile) -> int:
+    """Highest signed counter of an earlier released profile of this product."""
+    highest = 0
+    parent = profile.path.parent
+    if not parent.is_dir():
+        return 0
+    for candidate in sorted(parent.iterdir()):
+        if not candidate.is_dir() or candidate.resolve() == profile.path:
+            continue
+        try:
+            previous = load_profile(candidate)
+        except Exception:
+            continue
+        if previous.profile_id != profile.profile_id:
+            continue
+        if _version_tuple(previous.version) >= _version_tuple(profile.version):
+            continue
+        image = previous.app_image.image
+        if image is not None and image.is_signed:
+            highest = max(highest, int(previous.signing.security_counter))
+    return highest
+
+
 def _verify(args: argparse.Namespace) -> int:
     try:
         profile = load_profile(
@@ -134,10 +161,107 @@ def _verify(args: argparse.Namespace) -> int:
     except Exception as exc:
         print(f"INVALID: {exc}", file=sys.stderr)
         return 1
+    app = profile.app_image.image
+    boot = profile.boot_image.image
+    if app is None or boot is None:
+        print("INVALID: missing application or BOOT image", file=sys.stderr)
+        return 1
+    problems: list[str] = []
+    key_point: bytes | None = None
+    key = profile.signing_public_key_path
+    actual_key_id = 0
+    if key is not None:
+        try:
+            key_point = public_point(load_key(key))
+            actual_key_id = key_id(key_point)
+        except Exception as exc:
+            problems.append(f"cannot read signing.public_key: {exc}")
+    boot_has_key = bool(key_point is not None and key_point in boot.data)
+    development = actual_key_id == layout.DEVELOPMENT_KEY_ID
+    if profile.production:
+        if not app.is_signed:
+            problems.append("production profile has an unsigned (v1) application")
+        if not boot_has_key:
+            problems.append("the BOOT image does not contain the profile's public key")
+        if development:
+            problems.append("production profile uses the published development key")
+    previous = _previous_counter(profile)
+    if app.is_signed and previous and app.security_counter < previous:
+        problems.append(
+            f"security counter {app.security_counter} is below the previous released "
+            f"profile's counter {previous}"
+        )
     print(
-        f"OK: {profile.profile_id} v{profile.version} ({profile.product}), "
-        f"{len(profile.images)} images, signature={'yes' if profile.signature else 'no'}"
+        f"{profile.profile_id} v{profile.version} ({profile.product})\n"
+        f"  production      : {'yes' if profile.production else 'no'}\n"
+        f"  test mode       : {profile.test_mode}\n"
+        f"  app header      : v{app.header_format} "
+        f"{'signed' if app.is_signed else 'UNSIGNED'}\n"
+        f"  security counter: {app.security_counter} (previous released {previous})\n"
+        f"  key id          : 0x{actual_key_id:08x} "
+        f"{'(development key)' if development else ''}\n"
+        f"  BOOT trusts key : {'yes' if boot_has_key else 'no'}\n"
+        f"  factory image   : "
+        f"{profile.factory_image.file if profile.factory_image else 'not built'}"
     )
+    if problems:
+        for problem in problems:
+            print(f"INVALID: {problem}", file=sys.stderr)
+        return 1
+    print(f"OK: {len(profile.images)} images verified")
+    return 0
+
+
+def _mkimage_path() -> Path:
+    vendored = Path(__file__).resolve().parents[1] / "hostcore" / "vendor" / "mkimage.py"
+    if vendored.is_file():
+        return vendored
+    return Path(__file__).resolve().parents[3] / "bootloader" / "tools" / "mkimage.py"
+
+
+def _build_factory(args: argparse.Namespace) -> int:
+    """Build one factory HEX with the bootloader's own tool (P1-04)."""
+    root = Path(args.directory)
+    mkimage = _mkimage_path()
+    if not mkimage.is_file():
+        print(f"error: mkimage.py not found ({mkimage})", file=sys.stderr)
+        return 2
+    output = Path(args.output) if args.output else root / "factory.hex"
+    command = [
+        sys.executable,
+        str(mkimage),
+        "--factory-hex",
+        str(output),
+        "--boot",
+        str(args.boot),
+        "--slot-a",
+        str(args.app),
+        "--seq-a",
+        str(args.sequence_a),
+        "--seq-b",
+        str(args.sequence_b),
+    ]
+    if args.slot_b:
+        command += ["--slot-b", str(args.slot_b)]
+    if args.slot_b_unconfirmed:
+        if not args.slot_b:
+            print("error: --slot-b-unconfirmed needs --slot-b", file=sys.stderr)
+            return 2
+        command.append("--slot-b-unconfirmed")
+    subprocess.run(command, check=True)
+    manifest_path = root / "manifest.yaml"
+    if manifest_path.is_file() and output.parent.resolve() == root.resolve():
+        raw = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+        images = raw.setdefault("images", {})
+        images["factory"] = {
+            "file": output.name if output.parent.resolve() == root.resolve() else str(output),
+            "sha256": sha256_file(output),
+        }
+        manifest_path.write_text(
+            yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
+        )
+        print(manifest_path)
+    print(output)
     return 0
 
 
@@ -208,6 +332,19 @@ def main(argv: list[str] | None = None) -> int:
     verify.add_argument("directory", type=Path)
     verify.add_argument("--public-key", default="")
     verify.set_defaults(func=_verify)
+
+    factory = sub.add_parser(
+        "build-factory", help="build the signed factory HEX with mkimage --factory-hex"
+    )
+    factory.add_argument("directory", type=Path)
+    factory.add_argument("--boot", type=Path, required=True)
+    factory.add_argument("--app", type=Path, required=True)
+    factory.add_argument("--slot-b", type=Path, default=None)
+    factory.add_argument("--slot-b-unconfirmed", action="store_true")
+    factory.add_argument("--output", type=Path, default=None)
+    factory.add_argument("--sequence-a", type=int, default=1)
+    factory.add_argument("--sequence-b", type=int, default=2)
+    factory.set_defaults(func=_build_factory)
 
     archive = sub.add_parser("archive")
     archive.add_argument("directory", type=Path)

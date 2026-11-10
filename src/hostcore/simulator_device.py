@@ -7,11 +7,22 @@ used by the desktop GUI, the headless CLI and the optional TCP server.
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import struct
 import threading
 import time
+import zlib
 from dataclasses import dataclass, field
 from typing import Any
 
+from hostcore.images import verify_header_signature
+from hostcore.layout import (
+    IMAGE_EXTENSION_OFFSET,
+    IMAGE_EXTENSION_SIZE,
+    IMAGE_HEADER_SIZE,
+    IMAGE_HEADER_VERSION,
+    IMAGE_HEADER_VERSION_UNSIGNED,
+)
 from hostcore.protocol import codec
 from hostcore.protocol.generated.hwlink.BootOutcome import BootOutcome
 from hostcore.protocol.generated.hwlink.FlashMode import FlashMode
@@ -234,6 +245,45 @@ class UpdateState:
     offset: int = 0
 
 
+def _header_bytes(header: dict[str, Any]) -> bytes:
+    """Rebuild the 256 header bytes so the CRC and signature can be checked."""
+    raw = bytearray(IMAGE_HEADER_SIZE)
+    struct.pack_into(
+        "<IHHIIIIIII",
+        raw,
+        0,
+        int(header.get("magic", 0)),
+        int(header.get("header_version", 1)),
+        int(header.get("header_size", IMAGE_HEADER_SIZE)),
+        int(header.get("image_type", 1)),
+        int(header.get("version", 0)),
+        int(header.get("image_size", 0)),
+        int(header.get("image_crc32", 0)),
+        int(header.get("load_address", 0)),
+        int(header.get("entry_address", 0)),
+        int(header.get("build_timestamp", 0)),
+    )
+    raw[36:56] = bytes(header.get("git_commit") or b"")[:20].ljust(20, b"\0")
+    raw[56:88] = str(header.get("name", "")).encode("ascii", "replace")[:32].ljust(32, b"\0")
+    extension = bytes(header.get("extension") or b"")
+    if extension:
+        raw[IMAGE_EXTENSION_OFFSET : IMAGE_EXTENSION_OFFSET + IMAGE_EXTENSION_SIZE] = (
+            extension[:IMAGE_EXTENSION_SIZE].ljust(IMAGE_EXTENSION_SIZE, b"\0")
+        )
+    struct.pack_into("<I", raw, 252, zlib.crc32(raw[:252]) & 0xFFFFFFFF)
+    return bytes(raw)
+
+
+def _extension_fields(header: dict[str, Any]) -> dict[str, Any]:
+    extension = bytes(header.get("extension") or b"").ljust(IMAGE_EXTENSION_SIZE, b"\0")
+    return {
+        "security_counter": int.from_bytes(extension[0:4], "little"),
+        "key_id": int.from_bytes(extension[4:8], "little"),
+        "image_sha256": extension[8:40],
+        "signature": extension[40:104],
+    }
+
+
 class SimulatedDevice:
     """Stateful device implementing all three HWLINK roles."""
 
@@ -271,6 +321,13 @@ class SimulatedDevice:
             "last_outcome": BootOutcome.BOOTED,
             "rejected_slot": Slot.UNKNOWN,
             "flash_mode": FlashMode.DUAL_BANK,
+            "active_valid": True,
+            "target_slot": Slot.B,
+            "boot_version": "0.1.0",
+            "boot_build": "simulated",
+            "signed_images": False,
+            "key_id": 0,
+            "security_floor": 1,
             "slots": [
                 {
                     "slot": Slot.A,
@@ -287,6 +344,7 @@ class SimulatedDevice:
                     "name": "stm32-application",
                     "image_size": 0x1A400,
                     "detail": "confirmed",
+                    "security_counter": 1,
                 },
                 {
                     "slot": Slot.B,
@@ -303,10 +361,16 @@ class SimulatedDevice:
                     "name": "",
                     "image_size": 0,
                     "detail": "empty",
+                    "security_counter": 0,
                 },
             ],
         }
         self.update = UpdateState()
+        # BOOT security model (P0-03 / section 8.2).
+        self.signed_images = False
+        self.signing_public_key: Any = None
+        self.security_floor = 0
+        self.boot_key_id = 0
         self.demo = {
             "leds": [
                 {"led": 1, "pattern": LedPattern.HEARTBEAT, "period_ms": 1000},
@@ -763,11 +827,41 @@ class SimulatedDevice:
             ),
             "name": codec.text(header_table.Name()),
             "header_crc32": int(header_table.HeaderCrc32()),
+            "extension": bytes(
+                header_table.Extension(i) for i in range(int(header_table.ExtensionLength()))
+            ),
         }
-        if header["magic"] != 0x48574249 or header["header_version"] != 1 or header["header_size"] != 256:
+        if header["magic"] != 0x48574249 or header["header_size"] != 256:
             return self._reply(codec.build_nak(seq, 7, "bad image header"), seq)
+        version = int(header["header_version"])
+        if version not in (IMAGE_HEADER_VERSION_UNSIGNED, IMAGE_HEADER_VERSION):
+            return self._reply(codec.build_nak(seq, 7, "bad image header version"), seq)
         if header["load_address"] != 0x0800C000 or header["image_size"] > 0x000F4000:
             return self._reply(codec.build_nak(seq, 8, "bad image layout"), seq)
+        raw_header = _header_bytes(header)
+        if struct.unpack_from("<I", raw_header, 252)[0] != int(header["header_crc32"]):
+            return self._reply(codec.build_nak(seq, 7, "header CRC32 mismatch"), seq)
+        if version == IMAGE_HEADER_VERSION:
+            fields = _extension_fields(header)
+            header.update(fields)
+            if not any(fields["signature"]):
+                return self._reply(codec.build_nak(seq, 14, "image has no signature"), seq)
+            if self.signing_public_key is not None and not verify_header_signature(
+                raw_header, self.signing_public_key
+            ):
+                return self._reply(codec.build_nak(seq, 14, "bad signature"), seq)
+            if int(fields["security_counter"]) < int(self.security_floor):
+                return self._reply(
+                    codec.build_nak(
+                        seq,
+                        15,
+                        f"security counter {fields['security_counter']} is below the "
+                        f"floor {self.security_floor}",
+                    ),
+                    seq,
+                )
+        elif self.signed_images:
+            return self._reply(codec.build_nak(seq, 14, "image is not signed"), seq)
         self.update = UpdateState(active=True, header=header)
         return self._reply(codec.build_ack(seq), seq)
 
@@ -802,6 +896,16 @@ class SimulatedDevice:
                 codec.build_update_result(False, int(header.get("image_crc32", 0)), 12, "CRC mismatch"),
                 seq,
             )
+        if int(header.get("header_version", 1)) == IMAGE_HEADER_VERSION:
+            fields = _extension_fields(header)
+            if hashlib.sha256(self.update.data).digest() != fields["image_sha256"]:
+                self.update.active = False
+                return self._reply(
+                    codec.build_update_result(
+                        False, int(header.get("image_crc32", 0)), 14, "image SHA-256 mismatch"
+                    ),
+                    seq,
+                )
         inactive = Slot.B if self.boot["active_slot"] == Slot.A else Slot.A
         slot = next((s for s in self.boot["slots"] if s["slot"] == inactive), None)
         if slot is not None:
@@ -820,6 +924,11 @@ class SimulatedDevice:
                     "name": str(header.get("name", "")),
                     "image_size": int(header.get("image_size", 0)),
                     "detail": "verified",
+                    "security_counter": int(
+                        _extension_fields(header)["security_counter"]
+                        if int(header.get("header_version", 1)) == IMAGE_HEADER_VERSION
+                        else 0
+                    ),
                 }
             )
         self.update.active = False

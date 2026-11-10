@@ -21,6 +21,7 @@ from hwval_factory.auth import AuthService
 from hwval_factory.config import (
     ConfigError,
     default_station,
+    detect_stlink_firmware,
     detect_stlink_serials,
     detect_vcp_ports,
     load_station_config,
@@ -31,6 +32,7 @@ from hwval_factory.models import Role, RunKind
 from hwval_factory.profile import ProductProfile, ProfileError, list_profiles, load_profile
 from hwval_factory.reports import certificate_pdf, export_csv, export_json
 from hwval_factory.station import Station, StationError
+from hwval_factory.tools import ToolError
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -85,6 +87,63 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true", help="JSON result on stdout")
     parser.add_argument("--kiosk", action="store_true", help="start the UI in kiosk mode")
     parser.add_argument("--fixtures", type=int, default=4, help="simulated fixture count")
+
+    commands = parser.add_subparsers(dest="command")
+    tool_root = commands.add_parser("tool", help="run one standalone station tool")
+    tool = tool_root.add_subparsers(dest="tool_command", metavar="TOOL", required=True)
+    tool_help = {
+        "probe": "SWD + VCP + Hello, step by step",
+        "identify": "IDs, UID, option bytes, RDP, anti-rollback floor",
+        "erase": "mass erase (refused at RDP > 0)",
+        "program-boot": "program and verify the profile BOOT image",
+        "program-factory": "program and verify the profile factory HEX",
+        "load-app": "load an application image over SWD or BOOT",
+        "test": "run the profile test plan (or selected tests)",
+        "identity": "read, write or verify the identity record",
+        "boot-check": "reset and prove the application starts",
+        "protect": "apply BOR/WRP/RDP from the profile",
+        "recover": "catch BOOT, end a trial, lower RDP 1 or connect-under-reset",
+        "capture-log": "capture the fixture debug UART",
+    }
+    for name, help_text in tool_help.items():
+        sub = tool.add_parser(name, help=help_text)
+        sub.add_argument("--fixture", required=True)
+        sub.add_argument("--profile", default="")
+        sub.add_argument("--station", type=Path)
+        sub.add_argument("--profiles-dir", type=Path)
+        sub.add_argument("--simulate", action="store_true")
+        sub.add_argument("--no-simulate", action="store_true")
+        sub.add_argument("--operator", default="operator")
+        sub.add_argument("--json", action="store_true")
+        if name == "erase":
+            sub.add_argument("--confirm", action="store_true")
+        elif name == "program-factory":
+            pass
+        elif name == "load-app":
+            sub.add_argument("image", nargs="?", default="")
+            sub.add_argument("--via", choices=["boot", "swd"], default="swd")
+            sub.add_argument("--no-activate", action="store_true")
+        elif name == "test":
+            sub.add_argument("--tests", nargs="+", default=None)
+            sub.add_argument("--timeout", type=float, default=180.0)
+        elif name == "identity":
+            sub.add_argument("action", choices=["read", "write", "verify"])
+            sub.add_argument("--serial", default="")
+            sub.add_argument("--mac", default="")
+            sub.add_argument("--hw-revision", default="")
+        elif name == "recover":
+            sub.add_argument(
+                "action",
+                nargs="?",
+                choices=["catch", "unstick", "unlock-rdp", "connect"],
+                default="catch",
+            )
+            sub.add_argument("--reason", default="")
+            sub.add_argument("--confirm", action="store_true")
+            sub.add_argument("--timeout", type=float, default=10.0)
+        elif name == "capture-log":
+            sub.add_argument("--port", default="")
+            sub.add_argument("--seconds", type=float, default=10.0)
     return parser
 
 
@@ -92,7 +151,7 @@ def _load_config(args: argparse.Namespace) -> tuple[Any, bool]:
     if args.station:
         config = load_station_config(args.station)
     else:
-        config = default_station(simulated=True, fixture_count=args.fixtures)
+        config = default_station(simulated=True, fixture_count=getattr(args, "fixtures", 1))
     simulation = config.simulation
     if args.simulate:
         simulation = True
@@ -466,6 +525,15 @@ def _run_utility(args: argparse.Namespace) -> int:
                 print(f"  {probe}")
             if not probes:
                 print("  (none)")
+            firmware = detect_stlink_firmware()
+            if firmware:
+                print("ST-LINK firmware:")
+                for serial, version in sorted(firmware.items()):
+                    major = 0
+                    with contextlib.suppress(ValueError):
+                        major = int(version.lstrip("Vv").split(".")[0])
+                    warning = " (old; update to V3J or newer)" if 0 < major < 3 else ""
+                    print(f"  {serial}\t{version}{warning}")
             print("VCP ports:")
             ports = detect_vcp_ports()
             for port in ports:
@@ -535,8 +603,88 @@ def _run_utility(args: argparse.Namespace) -> int:
         db.close()
 
 
+def _run_tool(args: argparse.Namespace) -> int:
+    from hwval_factory.tools import ToolRunner
+
+    config, simulation = _load_config(args)
+    db = Database(config.database)
+    db.initialize()
+    auth = AuthService(db)
+    auth.ensure_default_admin()
+    profile = _resolve_profile(args, config)
+    station = Station(config, db, profile, simulation=simulation)
+    try:
+        row = db.user(args.operator)
+        if row is not None:
+            role = Role(str(row["role"]))
+        elif args.operator in ("admin", "administrator"):
+            role = Role.ADMIN
+        else:
+            role = Role.OPERATOR
+        runner = ToolRunner(station, args.operator)
+        runner.check_role(args.tool_command, role)
+        name = args.tool_command
+        if name == "erase":
+            result = runner.erase(args.fixture, confirm=args.confirm)
+        elif name == "load-app":
+            result = runner.load_app(
+                args.fixture,
+                image=args.image,
+                via=args.via,
+                activate=not args.no_activate,
+            )
+        elif name == "test":
+            result = runner.test(args.fixture, tests=args.tests, timeout=args.timeout)
+        elif name == "identity":
+            result = runner.identity(
+                args.fixture,
+                action=args.action,
+                serial=args.serial,
+                mac=args.mac,
+                hw_revision=args.hw_revision,
+            )
+        elif name == "recover":
+            result = runner.recover(
+                args.fixture,
+                action=args.action,
+                reason=args.reason,
+                confirm=args.confirm,
+                timeout=args.timeout,
+            )
+        elif name == "capture-log":
+            result = runner.capture_log(
+                args.fixture, port=args.port, seconds=args.seconds
+            )
+        else:
+            result = getattr(runner, name.replace("-", "_"))(args.fixture)
+        if args.json:
+            print(json.dumps(result.as_dict(), indent=2, sort_keys=True, default=str))
+        else:
+            print(f"{'PASS' if result.ok else 'FAIL'}  {result.tool}: {result.detail}")
+            if result.data:
+                print(json.dumps(result.data, indent=2, sort_keys=True, default=str))
+        db.audit(
+            args.operator,
+            "tool.finish",
+            f"fixture={args.fixture} tool={name} ok={result.ok}",
+        )
+        return 0 if result.ok else 1
+    finally:
+        station.close()
+        db.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    if getattr(args, "tool_command", None):
+        try:
+            return _run_tool(args)
+        except ToolError as exc:
+            print(f"tool error: {exc}", file=sys.stderr)
+            return 2
+        except (ConfigError, ProfileError, StationError, LabelError) as exc:
+            print(f"station error: {exc}", file=sys.stderr)
+            return 2
     utility = (
         args.import_macs is not None
         or args.init_station is not None

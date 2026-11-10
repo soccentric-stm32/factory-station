@@ -5,6 +5,10 @@ hw_revisions:
 - B
 - C
 min_factory_version: 0.1.0
+production: false
+retired: true
+retired_at: '2026-11-06'
+retired_reason: superseded by sc767-1.1.0 (signed images)
 released:
   by: Sandesh Ghimire
   at: '2026-11-04'

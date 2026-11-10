@@ -9,6 +9,7 @@ expected to consume this package unchanged.
 The package deliberately has no dependency on the Factory application.
 """
 
+from hostcore.boot import BootError, catch_boot, wait_for_application, wait_for_boot
 from hostcore.hwlink import (
     HwLinkClient,
     HwLinkError,
@@ -23,6 +24,7 @@ from hostcore.theme import COLORS, apply_theme, icon
 
 __all__ = [
     "COLORS",
+    "BootError",
     "FirmwareImage",
     "FrameParser",
     "HwLinkClient",
@@ -34,7 +36,10 @@ __all__ = [
     "SerialTransport",
     "SimulatedTransport",
     "apply_theme",
+    "catch_boot",
     "icon",
     "parse_image",
     "sha256_file",
+    "wait_for_application",
+    "wait_for_boot",
 ]

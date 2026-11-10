@@ -56,38 +56,21 @@ class SetLed(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
-def SetLedStart(builder):
-    builder.StartObject(4)
-
+def SetLedStart(builder): builder.StartObject(4)
 def Start(builder):
-    SetLedStart(builder)
-
-def SetLedAddLed(builder, led):
-    builder.PrependUint8Slot(0, led, 1)
-
+    return SetLedStart(builder)
+def SetLedAddLed(builder, led): builder.PrependUint8Slot(0, led, 1)
 def AddLed(builder, led):
-    SetLedAddLed(builder, led)
-
-def SetLedAddPattern(builder, pattern):
-    builder.PrependUint8Slot(1, pattern, 0)
-
+    return SetLedAddLed(builder, led)
+def SetLedAddPattern(builder, pattern): builder.PrependUint8Slot(1, pattern, 0)
 def AddPattern(builder, pattern):
-    SetLedAddPattern(builder, pattern)
-
-def SetLedAddPeriodMs(builder, periodMs):
-    builder.PrependUint16Slot(2, periodMs, 0)
-
+    return SetLedAddPattern(builder, pattern)
+def SetLedAddPeriodMs(builder, periodMs): builder.PrependUint16Slot(2, periodMs, 0)
 def AddPeriodMs(builder, periodMs):
-    SetLedAddPeriodMs(builder, periodMs)
-
-def SetLedAddForce(builder, force):
-    builder.PrependBoolSlot(3, force, 0)
-
+    return SetLedAddPeriodMs(builder, periodMs)
+def SetLedAddForce(builder, force): builder.PrependBoolSlot(3, force, 0)
 def AddForce(builder, force):
-    SetLedAddForce(builder, force)
-
-def SetLedEnd(builder):
-    return builder.EndObject()
-
+    return SetLedAddForce(builder, force)
+def SetLedEnd(builder): return builder.EndObject()
 def End(builder):
     return SetLedEnd(builder)

@@ -291,7 +291,7 @@ def body_table_from_payload(payload: bytes) -> Any:
 # Common builders
 
 
-def build_hello(host_name: str, host_version: str, protocol_minor: int) -> bytes:
+def build_hello(host_name: str, host_version: str, protocol_minor: int = 3) -> bytes:
     b = flatbuffers.Builder(256)
     name = b.CreateString(host_name)
     version = b.CreateString(host_version)
@@ -507,10 +507,16 @@ def build_get_boot_info() -> bytes:
 def _build_image_header(b: flatbuffers.Builder, header: dict[str, Any]) -> int:
     git = bytes(header.get("git_commit") or b"")
     git_vec = b.CreateByteVector(git)
+    # Protocol minor 3: bytes 88..251 verbatim.  For a version 2 header this
+    # carries the security counter, key id, SHA-256 and ECDSA signature; BOOT
+    # zero-fills the bytes when the field is absent (older hosts).
+    extension = bytes(header.get("extension") or b"")
+    if extension:
+        extension_vec = b.CreateByteVector(extension)
     name = b.CreateString(str(header.get("name", "")))
     ImageHeader.ImageHeaderStart(b)
     ImageHeader.ImageHeaderAddMagic(b, int(header.get("magic", 0x48574249)))
-    ImageHeader.ImageHeaderAddHeaderVersion(b, int(header.get("header_version", 1)))
+    ImageHeader.ImageHeaderAddHeaderVersion(b, int(header.get("header_version", 2)))
     ImageHeader.ImageHeaderAddHeaderSize(b, int(header.get("header_size", 256)))
     ImageHeader.ImageHeaderAddImageType(b, int(header.get("image_type", 1)))
     ImageHeader.ImageHeaderAddVersion(b, int(header.get("version", 0)))
@@ -522,15 +528,42 @@ def _build_image_header(b: flatbuffers.Builder, header: dict[str, Any]) -> int:
     ImageHeader.ImageHeaderAddGitCommit(b, git_vec)
     ImageHeader.ImageHeaderAddName(b, name)
     ImageHeader.ImageHeaderAddHeaderCrc32(b, int(header.get("header_crc32", 0)))
+    if extension:
+        ImageHeader.ImageHeaderAddExtension(b, extension_vec)
     return ImageHeader.ImageHeaderEnd(b)
 
 
-def build_update_begin(header: dict[str, Any]) -> bytes:
+def build_update_begin(header: dict[str, Any], force: bool = False) -> bytes:
     b = flatbuffers.Builder(1024)
     header_table = _build_image_header(b, header)
     UpdateBegin.UpdateBeginStart(b)
     UpdateBegin.UpdateBeginAddHeader(b, header_table)
+    # Protocol minor 2: bench-only override for an active trial slot.
+    # Production hosts never set it (D-3 / P0-07).
+    UpdateBegin.UpdateBeginAddForce(b, force)
     return _finish(b, Body.UpdateBegin, UpdateBegin.UpdateBeginEnd(b))
+
+
+def parse_image_header(t: Any) -> dict[str, Any]:
+    """Decode an ``ImageHeader`` table (P0-03 round-trip tests)."""
+    if t is None:
+        return {}
+    return {
+        "magic": int(t.Magic()),
+        "header_version": int(t.HeaderVersion()),
+        "header_size": int(t.HeaderSize()),
+        "image_type": int(t.ImageType()),
+        "version": int(t.Version()),
+        "image_size": int(t.ImageSize()),
+        "image_crc32": int(t.ImageCrc32()),
+        "load_address": int(t.LoadAddress()),
+        "entry_address": int(t.EntryAddress()),
+        "build_timestamp": int(t.BuildTimestamp()),
+        "git_commit": bytes(t.GitCommit(i) for i in range(int(t.GitCommitLength()))),
+        "name": text(t.Name()),
+        "header_crc32": int(t.HeaderCrc32()),
+        "extension": bytes(t.Extension(i) for i in range(int(t.ExtensionLength()))),
+    }
 
 
 def build_update_data(offset: int, data: bytes) -> bytes:
@@ -616,7 +649,7 @@ def build_hello_reply(
     rev_id: int,
     flash_mode: int,
     protocol_major: int = 1,
-    protocol_minor: int = 1,
+    protocol_minor: int = 3,
     max_frame: int = 2048,
     detail: str = "",
 ) -> bytes:
@@ -992,17 +1025,27 @@ def build_boot_info(info: dict[str, Any]) -> bytes:
         BootSlotInfo.BootSlotInfoAddName(b, name_s)
         BootSlotInfo.BootSlotInfoAddImageSize(b, int(slot.get("image_size", 0)))
         BootSlotInfo.BootSlotInfoAddDetail(b, detail_s)
+        BootSlotInfo.BootSlotInfoAddSecurityCounter(b, int(slot.get("security_counter", 0)))
         offsets.append(BootSlotInfo.BootSlotInfoEnd(b))
     BootInfo.BootInfoStartSlotsVector(b, len(offsets))
     for offset in reversed(offsets):
         b.PrependUOffsetTRelative(offset)
     vector = b.EndVector()
+    boot_version_s = b.CreateString(str(info.get("boot_version", "")))
+    boot_build_s = b.CreateString(str(info.get("boot_build", "")))
     BootInfo.BootInfoStart(b)
     BootInfo.BootInfoAddActiveSlot(b, int(info.get("active_slot", 0)))
     BootInfo.BootInfoAddLastOutcome(b, int(info.get("last_outcome", 0)))
     BootInfo.BootInfoAddRejectedSlot(b, int(info.get("rejected_slot", 0)))
     BootInfo.BootInfoAddFlashMode(b, int(info.get("flash_mode", 0)))
     BootInfo.BootInfoAddSlots(b, vector)
+    BootInfo.BootInfoAddActiveValid(b, bool(info.get("active_valid", False)))
+    BootInfo.BootInfoAddTargetSlot(b, int(info.get("target_slot", 0)))
+    BootInfo.BootInfoAddBootVersion(b, boot_version_s)
+    BootInfo.BootInfoAddBootBuild(b, boot_build_s)
+    BootInfo.BootInfoAddSignedImages(b, bool(info.get("signed_images", False)))
+    BootInfo.BootInfoAddKeyId(b, int(info.get("key_id", 0)))
+    BootInfo.BootInfoAddSecurityFloor(b, int(info.get("security_floor", 0)))
     return _finish(b, Body.BootInfo, BootInfo.BootInfoEnd(b))
 
 
@@ -1356,6 +1399,7 @@ def parse_boot_info(t: Any) -> dict[str, Any]:
                 "name": text(slot.Name()),
                 "image_size": int(slot.ImageSize()),
                 "detail": text(slot.Detail()),
+                "security_counter": int(slot.SecurityCounter()),
             }
         )
     return {
@@ -1367,6 +1411,15 @@ def parse_boot_info(t: Any) -> dict[str, Any]:
         "rejected_slot_name": SLOT_NAMES.get(int(t.RejectedSlot()), "—"),
         "flash_mode": int(t.FlashMode()),
         "flash_mode_name": FLASH_MODE_NAMES.get(int(t.FlashMode()), "UNKNOWN"),
+        "active_valid": bool(t.ActiveValid()),
+        "target_slot": int(t.TargetSlot()),
+        "target_slot_name": SLOT_NAMES.get(int(t.TargetSlot()), "—"),
+        "boot_version": text(t.BootVersion()),
+        "boot_build": text(t.BootBuild()),
+        "signed_images": bool(t.SignedImages()),
+        "key_id": int(t.KeyId()),
+        "key_id_hex": f"0x{int(t.KeyId()):08x}",
+        "security_floor": int(t.SecurityFloor()),
         "slots": slots,
     }
 

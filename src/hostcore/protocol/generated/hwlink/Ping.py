@@ -35,20 +35,12 @@ class Ping(object):
             return self._tab.Get(flatbuffers.number_types.Uint64Flags, o + self._tab.Pos)
         return 0
 
-def PingStart(builder):
-    builder.StartObject(1)
-
+def PingStart(builder): builder.StartObject(1)
 def Start(builder):
-    PingStart(builder)
-
-def PingAddHostTimeMs(builder, hostTimeMs):
-    builder.PrependUint64Slot(0, hostTimeMs, 0)
-
+    return PingStart(builder)
+def PingAddHostTimeMs(builder, hostTimeMs): builder.PrependUint64Slot(0, hostTimeMs, 0)
 def AddHostTimeMs(builder, hostTimeMs):
-    PingAddHostTimeMs(builder, hostTimeMs)
-
-def PingEnd(builder):
-    return builder.EndObject()
-
+    return PingAddHostTimeMs(builder, hostTimeMs)
+def PingEnd(builder): return builder.EndObject()
 def End(builder):
     return PingEnd(builder)

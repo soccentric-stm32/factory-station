@@ -28,14 +28,9 @@ class UpdateAbort(object):
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-def UpdateAbortStart(builder):
-    builder.StartObject(0)
-
+def UpdateAbortStart(builder): builder.StartObject(0)
 def Start(builder):
-    UpdateAbortStart(builder)
-
-def UpdateAbortEnd(builder):
-    return builder.EndObject()
-
+    return UpdateAbortStart(builder)
+def UpdateAbortEnd(builder): return builder.EndObject()
 def End(builder):
     return UpdateAbortEnd(builder)

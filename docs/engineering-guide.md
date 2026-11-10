@@ -193,3 +193,88 @@ real HWLINK stack, the real flash sector map and erase-before-write rules.
 Appendix B records, identity vectors, option bytes, serial/MAC allocation,
 profile/layout validation, simulated flash semantics and full PASS/FAIL runs.
 These are contract tests; the hardware checklist in the README still applies.
+
+## Steps, ports and recipes
+
+`src/hwval_factory/steps/` contains one module per EOL step. `pipeline.py`
+runs the recipe, handles retries, records every step and builds the failure
+text. `steps/registry.py` holds each step's `requires`/`provides` facts and
+validates the profile's `recipe:` list before a run starts. The default
+recipe is Flow A; `calibrate` drops out when the profile has no rules.
+
+`src/hwval_factory/ports.py` defines the structural ports (SWD, HWLINK,
+power, scanner, printer, MES, store, debug log, clock, operator). Real and
+simulated adapters already satisfy them; a step may depend on a port, not on
+OpenOCD or SQLite directly.
+
+## Standalone tools
+
+```bash
+hwval-factory tool probe       --fixture F1
+hwval-factory tool identify    --fixture F1
+hwval-factory tool erase       --fixture F1 --confirm --operator admin
+hwval-factory tool program-boot    --fixture F1 --profile P
+hwval-factory tool program-factory --fixture F1 --profile P
+hwval-factory tool load-app    --fixture F1 --profile P --via boot
+hwval-factory tool test        --fixture F1 --profile P --tests 'ADC.*'
+hwval-factory tool identity    --fixture F1 --profile P read|write|verify
+hwval-factory tool boot-check  --fixture F1 --profile P
+hwval-factory tool protect     --fixture F1 --profile P --operator admin
+hwval-factory tool recover     --fixture F1 --profile P catch|unstick|unlock-rdp|connect
+hwval-factory tool capture-log --fixture F1 --seconds 10
+```
+
+Every tool uses the same profile, HWLINK/BOOT rules and audit trail as the
+full run. `--json` prints a machine-readable result.
+
+## Contract bundle and protocol minor 3
+
+`make hostkit` runs `scripts/update_hostkit.py`: it builds
+`bootloader/build/soccentric-hwlink`, vendors it under
+`src/hostcore/vendor/`, composes the station schema (BOOT schema + HWVAL
+section), rewrites the generated bindings and records the hash in
+`src/hostcore/BUNDLE`. Install `flatc` to regenerate the HWVAL table
+bindings too; without it the script keeps the existing HWVAL bindings.
+
+The station speaks protocol minor 3: `AUTH_FAILED`, `ROLLBACK`,
+`ImageHeader.extension` (header bytes 88–251), `BootSlotInfo.security_counter`
+and the `BootInfo` signed-images/key-id/floor fields. `PROTOCOL_MINOR` is
+checked against the bootloader by `tests/test_contracts.py`.
+
+## Debug UART (D-6)
+
+Set `debug_uart: /dev/serial/by-id/…` on a fixture. The station reads
+USART6/PG14 for the whole run, timestamps every line, splits `[ms] TAG L
+text` into tag/level, stores the last 400 lines in the run metadata and
+attaches the last 20 lines to a failure. Without a debug UART the run is
+unchanged.
+
+## Factory HEX
+
+`hwval-profile build-factory DIR --boot BOOT.hex --app APP.img [--slot-b IMG]`
+calls the bootloader's `mkimage.py --factory-hex`. Omit `--slot-b` to leave
+slot B empty (Flow A); pass `--slot-b … --slot-b-unconfirmed` for a Flow-B
+trial image. The step uses the factory HEX when the profile has
+`images.factory` and `steps.program_mode` is not `records`.
+
+## Flow B (test under BOOT)
+
+`test_mode: under_boot` selects `FLOW_B_RECIPE` in `steps/registry.py`:
+`scan → identify → product_config → program_flowb → link_up → test →
+calibrate → provision → end_test → boot_check → protect → label → record`.
+
+`program_flowb` writes the profile factory HEX that contains slot A
+(CONFIRMED, counter ≥ 1) and slot B (HWVAL, counter 0, ACTIVATED but not
+CONFIRMED). BOOT runs slot B on trial; `link_up` proves HWVAL answers and the
+UID matches; `end_test` erases slot B and metadata B; `boot_check` then proves
+the factory image in slot A starts.
+
+`profiles/sc767-1.2.0-flowb` is the simulator prototype. It is not released
+for production until validation-firmware passes its own suite under BOOT 20
+times in a row on hardware (P3-01). Build its factory HEX with:
+
+```bash
+hwval-profile build-factory profiles/sc767-1.2.0-flowb \
+    --boot .../boot.hex --app .../app.img --slot-b .../hwval.img \
+    --slot-b-unconfirmed
+```

@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from hwval_factory.central import CentralPoolConfig
+
 
 class ConfigError(RuntimeError):
     """Invalid station configuration."""
@@ -25,6 +27,8 @@ class FixtureConfig:
     golden_uid: str = ""
     power: dict[str, Any] = field(default_factory=dict)
     inputs: dict[str, Any] = field(default_factory=dict)
+    # D-6: optional USB-UART on the fixture's debug header (PG14 / USART6).
+    debug_uart: str = ""
 
     @property
     def has_probe(self) -> bool:
@@ -95,6 +99,7 @@ class StationConfig:
     profile_public_key: str = ""
     kiosk: bool = False
     label_template: str = ""
+    central_pool: Any = None
     config_path: Path | None = None
 
     @property
@@ -130,6 +135,7 @@ class StationConfig:
                     "golden_uid": f.golden_uid,
                     "power": f.power,
                     "inputs": f.inputs,
+                    "debug_uart": f.debug_uart,
                 }
                 for f in self.fixtures
             ],
@@ -223,6 +229,35 @@ def detect_stlink_serials() -> list[str]:
     return sorted(probes)
 
 
+def detect_stlink_firmware() -> dict[str, str]:
+    """Return ``serial -> ST-LINK firmware version`` when ``st-info`` exists."""
+    result: dict[str, str] = {}
+    try:
+        import subprocess
+
+        proc = subprocess.run(
+            ["st-info", "--probe"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        serial = ""
+        for line in (proc.stdout or "").splitlines():
+            key, _, value = line.partition(":")
+            key = key.strip().lower()
+            value = value.strip()
+            if key in ("serial", "stlink_serial"):
+                serial = value
+            elif (
+                key in ("stlink_version", "version", "stlink_firmware") and serial
+            ):
+                result[serial] = value
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return result
+
+
 def detect_vcp_ports() -> list[dict[str, str]]:
     """Return serial ports that look like an ST-LINK virtual COM port."""
     result: list[dict[str, str]] = []
@@ -270,6 +305,7 @@ def _fixture_from_dict(raw: dict[str, Any], index: int, base_port: int) -> Fixtu
         golden_uid=str(raw.get("golden_uid") or ""),
         power=dict(raw.get("power") or {}),
         inputs=dict(raw.get("inputs") or {}),
+        debug_uart=str(raw.get("debug_uart") or ""),
     )
 
 
@@ -291,6 +327,9 @@ def load_station_config(path: str | Path | None) -> StationConfig:
     openocd_raw = raw.get("openocd") or {}
     if not isinstance(openocd_raw, dict):
         raise ConfigError("[openocd] must be a mapping")
+    central_raw = raw.get("central_pool") or raw.get("central_database") or {}
+    if not isinstance(central_raw, dict):
+        raise ConfigError("[central_pool] must be a mapping")
     openocd = OpenOcdConfig(
         binary=str(openocd_raw.get("binary", "openocd")),
         interface_cfg=str(openocd_raw.get("interface_cfg", "interface/stlink.cfg")),
@@ -363,6 +402,15 @@ def load_station_config(path: str | Path | None) -> StationConfig:
         require_profile_signature=_as_bool(security.get("require_profile_signature"), False),
         profile_public_key=str(security.get("profile_public_key") or ""),
         kiosk=_as_bool(raw.get("kiosk"), False),
+        central_pool=CentralPoolConfig(
+            url=str(central_raw.get("url") or ""),
+            station_id=str(
+                central_raw.get("station_id")
+                or station.get("id")
+                or station.get("station_id")
+                or "STN-01"
+            ),
+        ),
         config_path=p.resolve(),
     )
     config.resolve_paths()
@@ -388,6 +436,18 @@ def validate_station_config(config: StationConfig) -> None:
     ports = [f.telnet_port for f in config.fixtures]
     if len(set(ports)) != len(ports):
         raise ConfigError("fixture telnet ports must be unique")
+    uarts = [f.debug_uart for f in config.fixtures if f.debug_uart]
+    if len(set(uarts)) != len(uarts):
+        raise ConfigError("fixture debug UART ports must be unique")
+    vcps = [f.serial_port for f in config.fixtures if f.serial_port]
+    if len(set(vcps)) != len(vcps):
+        raise ConfigError("fixture VCP ports must be unique")
+    if (
+        config.central_pool is not None
+        and getattr(config.central_pool, "url", "")
+        and not str(config.central_pool.url).startswith(("postgresql://", "postgres://"))
+    ):
+        raise ConfigError("central_pool.url must be a PostgreSQL URL")
     if config.session_timeout_minutes < 0:
         raise ConfigError("session timeout cannot be negative")
     if config.scanner.mode not in ("hid", "serial", "off"):

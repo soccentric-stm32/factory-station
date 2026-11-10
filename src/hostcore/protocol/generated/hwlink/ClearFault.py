@@ -28,14 +28,9 @@ class ClearFault(object):
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-def ClearFaultStart(builder):
-    builder.StartObject(0)
-
+def ClearFaultStart(builder): builder.StartObject(0)
 def Start(builder):
-    ClearFaultStart(builder)
-
-def ClearFaultEnd(builder):
-    return builder.EndObject()
-
+    return ClearFaultStart(builder)
+def ClearFaultEnd(builder): return builder.EndObject()
 def End(builder):
     return ClearFaultEnd(builder)

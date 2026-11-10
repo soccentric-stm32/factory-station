@@ -14,6 +14,12 @@ HWVAL Factory is the end-of-line test and provisioning station for STM32F767ZI b
 - Atomic serial and MAC allocation with Luhn check digits and pool warnings
 - Boot check of identity and confirmed slot
 - BOR, write and readout protection with read-back; RDP level 2 always rejected
+- Signed (ECDSA P-256) v2 images with anti-rollback counters; the station verifies, never signs
+- Listen-window-safe boot checks shared with `bootctl` (no false BOOT failures)
+- One-module-per-step pipeline with typed ports, recipe validation and standalone tools
+- Engineer Tools page and `hwval-factory tool …` commands with role checks and audit
+- Optional debug-UART capture attached to runs and failure text
+- Flow B prototype (HWVAL on a signed trial slot under BOOT) in the simulator
 - Versioned, SHA-256 pinned and Ed25519-signed production profiles
 - ZPL label printing over TCP with preview and PDF/PNG fallback
 - SQLite traceability with search, unit history, CSV/JSON export and PDF certificates
@@ -24,13 +30,21 @@ HWVAL Factory is the end-of-line test and provisioning station for STM32F767ZI b
 - Simulator of the STM32F767ZI flash, protection and HWLINK device stack
 - Headless CLI with pass/fail/error exit codes
 - Packaging for PyInstaller, .deb, AppImage and Windows MSI
+- macOS-style light window with a sidebar, a full menu bar and SVG icons
+- Bench pages for a blank board: Detect (ST-LINK and UART), Bootloader, Factory firmware, Device info, System info, Calibration and Diagnostics
+- Flashes the bootloader over SWD and the signed factory firmware into slot A through the bootloader, with your signing key
+- Writes `.sys`, `.cal` and `.diag` files over UART through the factory firmware, each read back and compared
+- CSV factory database searched by id and compacted into a `.sys` file
+- Simulated board for every bench page, no hardware needed
 
 ## Build and run
 
 ```bash
 python -m pip install -e .
 hwval-factory-ui --simulate --fixtures 4   # full flow with four simulated fixtures
-make test                                  # run the test suite
+make dev && make test                      # install dev/test extras and run the suite
+make lint                                  # ruff
+make hostkit                               # re-vendor the HWLINK contract bundle
 ```
 
 ## Related projects
@@ -42,6 +56,7 @@ make test                                  # run the test suite
 - [app-rust-zephyr](https://github.com/soccentric-stm32/app-rust-zephyr) — Demo application in Rust on Zephyr RTOS
 - [validation-firmware](https://github.com/soccentric-stm32/validation-firmware) — HWVAL hardware validation firmware
 - [validation-gui](https://github.com/soccentric-stm32/validation-gui) — HWVAL Studio: desktop GUI for tests, updates and flashing
+- [factory-firmware](https://github.com/soccentric-stm32/factory-firmware) — First application on a fresh board: writes .sys, .cal and .diag over UART
 - [soccentric-stm32.github.io](https://github.com/soccentric-stm32/soccentric-stm32.github.io) — Project website
 
 ## License

@@ -56,38 +56,21 @@ class TaskStats(object):
             return self._tab.Get(flatbuffers.number_types.Uint16Flags, o + self._tab.Pos)
         return 0
 
-def TaskStatsStart(builder):
-    builder.StartObject(4)
-
+def TaskStatsStart(builder): builder.StartObject(4)
 def Start(builder):
-    TaskStatsStart(builder)
-
-def TaskStatsAddName(builder, name):
-    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
-
+    return TaskStatsStart(builder)
+def TaskStatsAddName(builder, name): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
 def AddName(builder, name):
-    TaskStatsAddName(builder, name)
-
-def TaskStatsAddPriority(builder, priority):
-    builder.PrependUint8Slot(1, priority, 0)
-
+    return TaskStatsAddName(builder, name)
+def TaskStatsAddPriority(builder, priority): builder.PrependUint8Slot(1, priority, 0)
 def AddPriority(builder, priority):
-    TaskStatsAddPriority(builder, priority)
-
-def TaskStatsAddState(builder, state):
-    builder.PrependUint8Slot(2, state, 0)
-
+    return TaskStatsAddPriority(builder, priority)
+def TaskStatsAddState(builder, state): builder.PrependUint8Slot(2, state, 0)
 def AddState(builder, state):
-    TaskStatsAddState(builder, state)
-
-def TaskStatsAddStackHighWater(builder, stackHighWater):
-    builder.PrependUint16Slot(3, stackHighWater, 0)
-
+    return TaskStatsAddState(builder, state)
+def TaskStatsAddStackHighWater(builder, stackHighWater): builder.PrependUint16Slot(3, stackHighWater, 0)
 def AddStackHighWater(builder, stackHighWater):
-    TaskStatsAddStackHighWater(builder, stackHighWater)
-
-def TaskStatsEnd(builder):
-    return builder.EndObject()
-
+    return TaskStatsAddStackHighWater(builder, stackHighWater)
+def TaskStatsEnd(builder): return builder.EndObject()
 def End(builder):
     return TaskStatsEnd(builder)

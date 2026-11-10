@@ -119,92 +119,48 @@ class HelloReply(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
-def HelloReplyStart(builder):
-    builder.StartObject(13)
-
+def HelloReplyStart(builder): builder.StartObject(13)
 def Start(builder):
-    HelloReplyStart(builder)
-
-def HelloReplyAddRole(builder, role):
-    builder.PrependUint8Slot(0, role, 3)
-
+    return HelloReplyStart(builder)
+def HelloReplyAddRole(builder, role): builder.PrependUint8Slot(0, role, 3)
 def AddRole(builder, role):
-    HelloReplyAddRole(builder, role)
-
-def HelloReplyAddFirmwareName(builder, firmwareName):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(firmwareName), 0)
-
+    return HelloReplyAddRole(builder, role)
+def HelloReplyAddFirmwareName(builder, firmwareName): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(firmwareName), 0)
 def AddFirmwareName(builder, firmwareName):
-    HelloReplyAddFirmwareName(builder, firmwareName)
-
-def HelloReplyAddVersion(builder, version):
-    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(version), 0)
-
+    return HelloReplyAddFirmwareName(builder, firmwareName)
+def HelloReplyAddVersion(builder, version): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(version), 0)
 def AddVersion(builder, version):
-    HelloReplyAddVersion(builder, version)
-
-def HelloReplyAddCommit(builder, commit):
-    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(commit), 0)
-
+    return HelloReplyAddVersion(builder, version)
+def HelloReplyAddCommit(builder, commit): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(commit), 0)
 def AddCommit(builder, commit):
-    HelloReplyAddCommit(builder, commit)
-
-def HelloReplyAddBuildTime(builder, buildTime):
-    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(buildTime), 0)
-
+    return HelloReplyAddCommit(builder, commit)
+def HelloReplyAddBuildTime(builder, buildTime): builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(buildTime), 0)
 def AddBuildTime(builder, buildTime):
-    HelloReplyAddBuildTime(builder, buildTime)
-
-def HelloReplyAddUid(builder, uid):
-    builder.PrependUint64Slot(5, uid, 0)
-
+    return HelloReplyAddBuildTime(builder, buildTime)
+def HelloReplyAddUid(builder, uid): builder.PrependUint64Slot(5, uid, 0)
 def AddUid(builder, uid):
-    HelloReplyAddUid(builder, uid)
-
-def HelloReplyAddDevId(builder, devId):
-    builder.PrependUint32Slot(6, devId, 0)
-
+    return HelloReplyAddUid(builder, uid)
+def HelloReplyAddDevId(builder, devId): builder.PrependUint32Slot(6, devId, 0)
 def AddDevId(builder, devId):
-    HelloReplyAddDevId(builder, devId)
-
-def HelloReplyAddRevId(builder, revId):
-    builder.PrependUint32Slot(7, revId, 0)
-
+    return HelloReplyAddDevId(builder, devId)
+def HelloReplyAddRevId(builder, revId): builder.PrependUint32Slot(7, revId, 0)
 def AddRevId(builder, revId):
-    HelloReplyAddRevId(builder, revId)
-
-def HelloReplyAddFlashMode(builder, flashMode):
-    builder.PrependUint8Slot(8, flashMode, 0)
-
+    return HelloReplyAddRevId(builder, revId)
+def HelloReplyAddFlashMode(builder, flashMode): builder.PrependUint8Slot(8, flashMode, 0)
 def AddFlashMode(builder, flashMode):
-    HelloReplyAddFlashMode(builder, flashMode)
-
-def HelloReplyAddProtocolMajor(builder, protocolMajor):
-    builder.PrependUint16Slot(9, protocolMajor, 0)
-
+    return HelloReplyAddFlashMode(builder, flashMode)
+def HelloReplyAddProtocolMajor(builder, protocolMajor): builder.PrependUint16Slot(9, protocolMajor, 0)
 def AddProtocolMajor(builder, protocolMajor):
-    HelloReplyAddProtocolMajor(builder, protocolMajor)
-
-def HelloReplyAddProtocolMinor(builder, protocolMinor):
-    builder.PrependUint16Slot(10, protocolMinor, 0)
-
+    return HelloReplyAddProtocolMajor(builder, protocolMajor)
+def HelloReplyAddProtocolMinor(builder, protocolMinor): builder.PrependUint16Slot(10, protocolMinor, 0)
 def AddProtocolMinor(builder, protocolMinor):
-    HelloReplyAddProtocolMinor(builder, protocolMinor)
-
-def HelloReplyAddMaxFrame(builder, maxFrame):
-    builder.PrependUint16Slot(11, maxFrame, 0)
-
+    return HelloReplyAddProtocolMinor(builder, protocolMinor)
+def HelloReplyAddMaxFrame(builder, maxFrame): builder.PrependUint16Slot(11, maxFrame, 0)
 def AddMaxFrame(builder, maxFrame):
-    HelloReplyAddMaxFrame(builder, maxFrame)
-
-def HelloReplyAddDetail(builder, detail):
-    builder.PrependUOffsetTRelativeSlot(12, flatbuffers.number_types.UOffsetTFlags.py_type(detail), 0)
-
+    return HelloReplyAddMaxFrame(builder, maxFrame)
+def HelloReplyAddDetail(builder, detail): builder.PrependUOffsetTRelativeSlot(12, flatbuffers.number_types.UOffsetTFlags.py_type(detail), 0)
 def AddDetail(builder, detail):
-    HelloReplyAddDetail(builder, detail)
-
-def HelloReplyEnd(builder):
-    return builder.EndObject()
-
+    return HelloReplyAddDetail(builder, detail)
+def HelloReplyEnd(builder): return builder.EndObject()
 def End(builder):
     return HelloReplyEnd(builder)

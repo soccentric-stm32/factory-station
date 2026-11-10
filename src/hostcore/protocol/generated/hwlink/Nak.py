@@ -56,38 +56,21 @@ class Nak(object):
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-def NakStart(builder):
-    builder.StartObject(4)
-
+def NakStart(builder): builder.StartObject(4)
 def Start(builder):
-    NakStart(builder)
-
-def NakAddSeq(builder, seq):
-    builder.PrependUint16Slot(0, seq, 0)
-
+    return NakStart(builder)
+def NakAddSeq(builder, seq): builder.PrependUint16Slot(0, seq, 0)
 def AddSeq(builder, seq):
-    NakAddSeq(builder, seq)
-
-def NakAddError(builder, error):
-    builder.PrependUint16Slot(1, error, 0)
-
+    return NakAddSeq(builder, seq)
+def NakAddError(builder, error): builder.PrependUint16Slot(1, error, 0)
 def AddError(builder, error):
-    NakAddError(builder, error)
-
-def NakAddDetail(builder, detail):
-    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(detail), 0)
-
+    return NakAddError(builder, error)
+def NakAddDetail(builder, detail): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(detail), 0)
 def AddDetail(builder, detail):
-    NakAddDetail(builder, detail)
-
-def NakAddExpectedOffset(builder, expectedOffset):
-    builder.PrependUint32Slot(3, expectedOffset, 0)
-
+    return NakAddDetail(builder, detail)
+def NakAddExpectedOffset(builder, expectedOffset): builder.PrependUint32Slot(3, expectedOffset, 0)
 def AddExpectedOffset(builder, expectedOffset):
-    NakAddExpectedOffset(builder, expectedOffset)
-
-def NakEnd(builder):
-    return builder.EndObject()
-
+    return NakAddExpectedOffset(builder, expectedOffset)
+def NakEnd(builder): return builder.EndObject()
 def End(builder):
     return NakEnd(builder)

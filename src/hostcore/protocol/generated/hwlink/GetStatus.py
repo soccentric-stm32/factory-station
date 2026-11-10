@@ -28,14 +28,9 @@ class GetStatus(object):
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-def GetStatusStart(builder):
-    builder.StartObject(0)
-
+def GetStatusStart(builder): builder.StartObject(0)
 def Start(builder):
-    GetStatusStart(builder)
-
-def GetStatusEnd(builder):
-    return builder.EndObject()
-
+    return GetStatusStart(builder)
+def GetStatusEnd(builder): return builder.EndObject()
 def End(builder):
     return GetStatusEnd(builder)

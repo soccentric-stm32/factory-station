@@ -125,3 +125,156 @@ def test_production_blocks_without_self_test(tmp_path: Path) -> None:
         station.close()
     finally:
         db.close()
+
+
+def test_signed_profile_simulator_passes(tmp_path: Path) -> None:
+    """P0-09: the released signed profile runs Flow A to PASS in the simulator."""
+    config = default_station(simulated=True, fixture_count=1)
+    config.database = tmp_path / "station.sqlite"
+    config.labels_dir = tmp_path / "labels"
+    config.certificates_dir = tmp_path / "certificates"
+    config.printer.output_dir = str(tmp_path / "labels")
+    config.profiles_dir = ROOT / "profiles"
+    db = Database(config.database)
+    db.initialize()
+    profile = load_profile(ROOT / "profiles/sc767-1.1.0")
+    assert profile.app_image.image is not None and profile.app_image.image.is_signed
+    station = Station(config, db, profile, simulation=True)
+    station.auto_work_order(quantity=50)
+    try:
+        run_id = station.start_run("F1", pcb_serial="PCB-SIGNED", operator="pytest")
+        assert station.wait("F1", timeout=120) == "PASS"
+        run = db.run(run_id)
+        assert run is not None and run["result"] == "PASS"
+        steps = {row["name"]: row for row in db.steps(run_id)}
+        detail = str(steps["Program production"]["detail"])
+        assert "v0.1.0" in detail and ("factory HEX" in detail or " at " in detail)
+        extras = db.run_extras(run_id)
+        assert extras is not None
+        import json
+
+        metadata = json.loads(extras["metadata"] or "{}")
+        assert metadata["expected_floor"] == 1
+        assert metadata["security_counter"] == 1
+        assert metadata["key_id"] == 0xFAA7_171B
+    finally:
+        station.close()
+        db.close()
+
+
+def test_signed_profile_boot_vcp_path_keeps_the_signature(tmp_path: Path) -> None:
+    """P0-03/P0-07: a v2 image uploaded over BOOT keeps its extension bytes."""
+    config = default_station(simulated=True, fixture_count=1)
+    config.database = tmp_path / "station.sqlite"
+    config.labels_dir = tmp_path / "labels"
+    config.certificates_dir = tmp_path / "certificates"
+    config.printer.output_dir = str(tmp_path / "labels")
+    config.profiles_dir = ROOT / "profiles"
+    db = Database(config.database)
+    db.initialize()
+    profile = load_profile(ROOT / "profiles/sc767-1.1.0")
+    profile.manifest["app_load"] = "boot"
+    station = Station(config, db, profile, simulation=True)
+    station.auto_work_order(quantity=50)
+    try:
+        run_id = station.start_run("F1", pcb_serial="PCB-SIGNED-BOOT", operator="pytest")
+        assert station.wait("F1", timeout=120) == "PASS"
+        steps = {row["name"]: row for row in db.steps(run_id)}
+        assert "loaded over VCP" in str(steps["Program production"]["detail"])
+        extras = db.run_extras(run_id)
+        assert extras is not None
+        import json
+
+        metadata = json.loads(extras["metadata"] or "{}")
+        assert metadata["security_counter"] == 1
+        assert metadata["expected_floor"] == 1
+        # BOOT stored header bytes 88..251 verbatim, signature included.
+        from hostcore import layout
+
+        assert station.simulator is not None and profile.app_image.image is not None
+        chip = station.simulator.bank("F1").device.chip
+        header = chip.read(layout.META_A_BASE, layout.IMAGE_HEADER_SIZE)
+        source = profile.app_image.image.header
+        assert header[88:252] == source[88:252]
+        assert header[128:192] == source[128:192]
+    finally:
+        station.close()
+        db.close()
+
+
+def test_eight_simulated_fixtures_run_in_parallel(tmp_path: Path) -> None:
+    config = default_station(simulated=True, fixture_count=8)
+    config.database = tmp_path / "parallel.sqlite"
+    config.labels_dir = tmp_path / "labels"
+    config.certificates_dir = tmp_path / "certificates"
+    config.printer.output_dir = str(tmp_path / "labels")
+    config.profiles_dir = ROOT / "examples"
+    db = Database(config.database)
+    db.initialize()
+    profile = load_profile(ROOT / "examples/profile-sc767-demo")
+    station = Station(config, db, profile, simulation=True)
+    station.auto_work_order(quantity=100)
+    try:
+        run_ids = {
+            name: station.start_run(name, pcb_serial=f"PCB-PAR-{name}", operator="pytest")
+            for name in station.fixture_names()
+        }
+        for name in station.fixture_names():
+            assert station.wait(name, timeout=180) == "PASS"
+            assert db.run(run_ids[name]) is not None
+    finally:
+        station.close()
+        db.close()
+
+
+def test_flow_b_runs_under_boot_in_the_simulator(tmp_path: Path) -> None:
+    """P3-04: Flow B programs both slots, tests HWVAL on trial, erases slot B."""
+    config = default_station(simulated=True, fixture_count=1)
+    config.database = tmp_path / "flowb.sqlite"
+    config.labels_dir = tmp_path / "labels"
+    config.certificates_dir = tmp_path / "certificates"
+    config.printer.output_dir = str(tmp_path / "labels")
+    config.profiles_dir = ROOT / "profiles"
+    db = Database(config.database)
+    db.initialize()
+    profile = load_profile(ROOT / "profiles/sc767-1.2.0-flowb")
+    assert profile.test_mode == "under_boot"
+    station = Station(config, db, profile, simulation=True)
+    station.auto_work_order(quantity=10)
+    try:
+        run_id = station.start_run("F1", pcb_serial="PCB-FLOWB", operator="pytest")
+        assert station.wait("F1", timeout=180) == "PASS"
+        steps = {row["name"]: row for row in db.steps(run_id)}
+        assert steps["Link to HWVAL trial"]["result"] == "PASS"
+        assert steps["End test image"]["result"] == "PASS"
+        assert "slot B" in str(steps["Program Flow B slots"]["detail"])
+        assert station.simulator is not None
+        chip = station.simulator.bank("F1").device.chip
+        # Slot B and metadata B are erased after the test.
+        assert chip.read(0x0810C000, 16) == b"\xff" * 16
+        assert chip.read(0x08108000, 4) == b"\xff" * 4
+    finally:
+        station.close()
+        db.close()
+
+
+def test_power_loss_during_option_bytes_is_unknown_config(tmp_path: Path) -> None:
+    """P2-03: a failed option-byte write is routed to recovery, not retried blindly."""
+    station, db, fixture = _station(tmp_path)
+    assert station.simulator is not None
+    station.simulator.bank(fixture).openocd.fail_options_once = True
+    try:
+        run_id = station.start_run(fixture, pcb_serial="PCB-PWR-LOSS", operator="pytest")
+        assert station.wait(fixture, timeout=60) == "FAIL"
+        extras = db.run_extras(run_id)
+        assert extras is not None
+        import json
+
+        metadata = json.loads(extras["metadata"] or "{}")
+        assert metadata["safe_state"] == "UNKNOWN_CONFIG"
+        run = db.run(run_id)
+        assert run is not None
+        assert "recovery tool" in str(run["reason"])
+    finally:
+        station.close()
+        db.close()

@@ -62,3 +62,26 @@ FAIL or ERROR.
 * **No fixture waiting** — press Start on the wanted tile first.
 * **Probe warning** — a configured ST-LINK is missing or an unconfigured probe
   is attached; call an engineer.
+
+## Tools page
+
+The **Tools** page runs one step on its own for the selected fixture. It
+lists the same actions as the CLI:
+
+`probe`, `identify`, `erase`, `program-boot`, `program-factory`, `load-app`,
+`test`, `identity`, `boot-check`, `protect`, `recover`, `capture-log`.
+
+- `erase`, `protect` and `recover` ask you to type the tool name before they
+  run. They also need a supervisor or administrator role.
+- Every tool writes an audit record with your user name and the fixture.
+- The result and any JSON detail stay in the log pane until the next run.
+- `capture-log` needs a debug UART configured for the fixture. It reads the
+  BOOT/application text log for the number of seconds you choose.
+
+## If a unit fails
+
+Read the red message on the fixture tile. It now carries the cause, the
+measured and expected values (when known) and the suggested action. If a
+debug UART is fitted, the last BOOT/application lines are attached to the
+run and shown on failure. Escalate to a supervisor before retrying an
+erase/protect/recover action.

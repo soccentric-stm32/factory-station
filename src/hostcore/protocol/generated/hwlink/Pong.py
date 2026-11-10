@@ -35,20 +35,12 @@ class Pong(object):
             return self._tab.Get(flatbuffers.number_types.Uint64Flags, o + self._tab.Pos)
         return 0
 
-def PongStart(builder):
-    builder.StartObject(1)
-
+def PongStart(builder): builder.StartObject(1)
 def Start(builder):
-    PongStart(builder)
-
-def PongAddUptimeMs(builder, uptimeMs):
-    builder.PrependUint64Slot(0, uptimeMs, 0)
-
+    return PongStart(builder)
+def PongAddUptimeMs(builder, uptimeMs): builder.PrependUint64Slot(0, uptimeMs, 0)
 def AddUptimeMs(builder, uptimeMs):
-    PongAddUptimeMs(builder, uptimeMs)
-
-def PongEnd(builder):
-    return builder.EndObject()
-
+    return PongAddUptimeMs(builder, uptimeMs)
+def PongEnd(builder): return builder.EndObject()
 def End(builder):
     return PongEnd(builder)

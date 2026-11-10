@@ -1147,6 +1147,41 @@ class Database:
 
         return {"fixture": summarise(fixture), "profile": summarise(profile)}
 
+    def step_stats(self, *, since: str = "") -> list[dict[str, Any]]:
+        """Median/p95 duration per step (P2-04 cycle-time budget)."""
+        clause = ""
+        params: list[Any] = []
+        if since:
+            clause = " AND r.started_at >= ?"
+            params.append(since)
+        rows = self.fetchall(
+            "SELECT s.name, s.duration_ms FROM steps s JOIN runs r ON r.id = s.run_id "
+            "WHERE s.duration_ms IS NOT NULL" + clause,
+            params,
+        )
+        groups: dict[str, list[float]] = {}
+        for row in rows:
+            groups.setdefault(str(row["name"]), []).append(float(row["duration_ms"]))
+        result: list[dict[str, Any]] = []
+        for name, values in sorted(groups.items()):
+            ordered = sorted(values)
+            count = len(ordered)
+            median = ordered[count // 2] if count % 2 else (
+                ordered[count // 2 - 1] + ordered[count // 2]
+            ) / 2
+            p95_index = max(0, min(count - 1, round(0.95 * (count - 1))))
+            result.append(
+                {
+                    "name": name,
+                    "runs": count,
+                    "average_ms": sum(ordered) / count,
+                    "median_ms": median,
+                    "p95_ms": ordered[p95_index],
+                    "max_ms": ordered[-1],
+                }
+            )
+        return result
+
     def run_count_for_pcb(self, pcb_serial: str) -> int:
         value = self.scalar("SELECT COUNT(*) FROM runs WHERE pcb_serial = ?", (pcb_serial,))
         return int(value or 0)

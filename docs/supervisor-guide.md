@@ -68,3 +68,27 @@ self-test age.
 Administrators manage users in **Tools → Users…** (roles: operator,
 supervisor, engineer, administrator). PINs are stored as salted scrypt hashes.
 Use **Tools → Change PIN…** to change your own PIN.
+
+## Recovery and read-protected boards
+
+Supervisors can use the recovery tools instead of ad-hoc OpenOCD commands:
+
+```bash
+hwval-factory tool recover --fixture F1 --profile profiles/sc767-1.1.0 catch
+hwval-factory tool recover --fixture F1 --profile profiles/sc767-1.1.0 unstick
+hwval-factory tool recover --fixture F1 --profile profiles/sc767-1.1.0 \
+    unlock-rdp --reason "customer return" --confirm
+hwval-factory tool recover --fixture F1 --profile profiles/sc767-1.1.0 connect
+```
+
+`unlock-rdp` lowers RDP 1 to 0 and mass-erases the chip. It is audited with
+your user name and the reason code. RDP level 2 is never attempted.
+
+## Signed profiles and the anti-rollback floor
+
+`hwval-profile verify profiles/sc767-1.1.0` prints the signing key id, the
+security counter, whether the BOOT image contains that public key, and
+whether it is the published development key. A release profile must use the
+product key. A rework is refused before erasing anything when the profile's
+security counter is below the unit's confirmed floor; use a newer profile or
+record a supervisor decision.

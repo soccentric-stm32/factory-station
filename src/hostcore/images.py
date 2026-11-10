@@ -20,13 +20,25 @@ import struct
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from hostcore.layout import (
     APP_LOAD_ADDR,
+    IMAGE_EXTENSION_OFFSET,
+    IMAGE_EXTENSION_SIZE,
+    IMAGE_HEADER_CRC_OFFSET,
     IMAGE_HEADER_SIZE,
     IMAGE_HEADER_VERSION,
+    IMAGE_HEADER_VERSION_UNSIGNED,
+    IMAGE_HEADER_VERSIONS,
+    IMAGE_KEY_ID_OFFSET,
     IMAGE_MAGIC,
+    IMAGE_SECURITY_COUNTER_OFFSET,
+    IMAGE_SHA256_OFFSET,
+    IMAGE_SHA256_SIZE,
+    IMAGE_SIGNATURE_OFFSET,
+    IMAGE_SIGNATURE_SIZE,
+    IMAGE_SIGNED_SIZE,
     IMAGE_TYPE_APPLICATION,
     META_ACTIVATED_MAGIC,
     META_ACTIVATED_OFFSET,
@@ -51,7 +63,7 @@ _COMMIT_OFFSET = 36
 _COMMIT_SIZE = 20
 _NAME_OFFSET = 56
 _NAME_SIZE = 32
-_HEADER_CRC_OFFSET = 252
+_HEADER_CRC_OFFSET = IMAGE_HEADER_CRC_OFFSET
 
 # Backwards-compatible names used by older callers/tests.
 METADATA_SIZE = META_RECORD_SIZE
@@ -88,6 +100,30 @@ class FirmwareImage:
     git_commit: str = ""
     header: bytes = b""
     header_crc32: int = 0
+    security_counter: int = 0
+    key_id: int = 0
+    image_sha256: bytes = b""
+    signature: bytes = b""
+
+    @property
+    def is_signed(self) -> bool:
+        return self.header_format == IMAGE_HEADER_VERSION
+
+    @property
+    def expected_floor(self) -> int:
+        """The anti-rollback floor this image sets once CONFIRMED."""
+        return self.security_counter if self.is_signed else 0
+
+    def verify_body_sha256(self) -> bool:
+        if not self.is_signed:
+            return True
+        return hashlib.sha256(self.data).digest() == self.image_sha256
+
+    def verify_signature(self, public_key: Any) -> bool:
+        """Check the v2 ECDSA P-256 signature with a public key or PEM."""
+        if not self.is_signed or not self.header:
+            return False
+        return verify_header_signature(self.header, _coerce_public_key(public_key))
 
     @property
     def size(self) -> int:
@@ -141,6 +177,7 @@ class FirmwareImage:
             "git_commit": bytes.fromhex(self.git_commit) if self.git_commit else b"",
             "name": self.name,
             "header_crc32": self.header_crc32,
+            "extension": self.header[IMAGE_EXTENSION_OFFSET : IMAGE_EXTENSION_OFFSET + IMAGE_EXTENSION_SIZE],
         }
 
     def metadata_offsets(self) -> list[int]:
@@ -189,7 +226,7 @@ def _parse_ibwh_header(header: bytes, path: Path) -> dict[str, int | str | bytes
     ) = _IMAGE_FIELDS.unpack_from(header)
     if magic != IMAGE_MAGIC:
         raise ImageError(f"{path.name}: bad image magic")
-    if header_version != IMAGE_HEADER_VERSION:
+    if header_version not in IMAGE_HEADER_VERSIONS:
         raise ImageError(f"{path.name}: unsupported image header version {header_version}")
     if header_size != IMAGE_HEADER_SIZE:
         raise ImageError(f"{path.name}: bad image header size {header_size}")
@@ -204,6 +241,13 @@ def _parse_ibwh_header(header: bytes, path: Path) -> dict[str, int | str | bytes
     (header_crc,) = struct.unpack_from("<I", header, _HEADER_CRC_OFFSET)
     if zlib.crc32(header[:_HEADER_CRC_OFFSET]) & 0xFFFFFFFF != header_crc:
         raise ImageError(f"{path.name}: image header CRC32 mismatch")
+    signed = header_version == IMAGE_HEADER_VERSION
+    (security_counter,) = struct.unpack_from("<I", header, IMAGE_SECURITY_COUNTER_OFFSET)
+    (key_id_value,) = struct.unpack_from("<I", header, IMAGE_KEY_ID_OFFSET)
+    image_sha256 = header[IMAGE_SHA256_OFFSET : IMAGE_SHA256_OFFSET + IMAGE_SHA256_SIZE]
+    signature = header[IMAGE_SIGNATURE_OFFSET : IMAGE_SIGNATURE_OFFSET + IMAGE_SIGNATURE_SIZE]
+    if signed and not any(signature):
+        raise ImageError(f"{path.name}: version 2 header has no signature")
     return {
         "header_version": header_version,
         "header_size": header_size,
@@ -219,7 +263,120 @@ def _parse_ibwh_header(header: bytes, path: Path) -> dict[str, int | str | bytes
         .rstrip(b"\0")
         .decode("ascii", "replace"),
         "header_crc32": header_crc,
+        "security_counter": security_counter if signed else 0,
+        "key_id": key_id_value if signed else 0,
+        "image_sha256": image_sha256 if signed else b"",
+        "signature": signature if signed else b"",
     }
+
+
+def _crypto() -> tuple[Any, Any, Any, Any]:
+    try:
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec, utils
+    except ImportError as exc:  # pragma: no cover - declared dependency
+        raise ImageError("cryptography is required for signed images") from exc
+    return hashes, serialization, ec, utils
+
+
+def load_key(path: str | Path) -> Any:
+    """Load a P-256 private or public key from a PEM file."""
+    _hashes, serialization, ec, _utils = _crypto()
+    try:
+        data = Path(path).read_bytes()
+    except OSError as exc:
+        raise ImageError(f"cannot read key {path}: {exc}") from exc
+    try:
+        key = serialization.load_pem_private_key(data, password=None)
+    except (TypeError, ValueError):
+        try:
+            key = serialization.load_pem_public_key(data)
+        except (TypeError, ValueError) as exc:
+            raise ImageError(f"{path}: not a PEM private or public key") from exc
+    if not isinstance(getattr(key, "curve", None), ec.SECP256R1):
+        raise ImageError(f"{path}: not a P-256 (secp256r1) key")
+    return key
+
+
+def public_point(key: Any) -> bytes:
+    """X || Y (64 bytes, big-endian), as BOOT stores its public key."""
+    _hashes, serialization, _ec, _utils = _crypto()
+    public = key.public_key() if hasattr(key, "public_key") else key
+    raw = public.public_bytes(
+        serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
+    )
+    return bytes(raw[1:])
+
+
+def key_id(point: bytes) -> int:
+    """First four bytes of SHA-256(X||Y), little-endian."""
+    return int.from_bytes(hashlib.sha256(point).digest()[:4], "little")
+
+
+def public_key_pem(key: Any) -> str:
+    _hashes, serialization, _ec, _utils = _crypto()
+    public = key.public_key() if hasattr(key, "public_key") else key
+    return public.public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+    ).decode("ascii")
+
+
+def _coerce_public_key(key: Any) -> Any:
+    if isinstance(key, (str, Path)):
+        return load_key(key)
+    return key
+
+
+def sign_header(header: bytes, body: bytes, key: Any, security_counter: int = 0) -> bytes:
+    """Return a version 2 (signed) header for ``body`` (BSAFE-006).
+
+    Bytes 0..127 are signed with ECDSA P-256/SHA-256; the signature is stored
+    as r || s, 32 bytes each, at offset 128.  The layout mirrors
+    ``bootloader/tools/mkimage.py:sign_header``.
+    """
+    hashes, _serialization, ec, utils = _crypto()
+    if not hasattr(key, "sign"):
+        raise ImageError("signing needs a private P-256 key")
+    if not 0 <= security_counter <= 0xFFFFFFFF:
+        raise ImageError("security counter must fit in 32 bits")
+    out = bytearray(header)
+    struct.pack_into("<H", out, 4, IMAGE_HEADER_VERSION)
+    struct.pack_into("<I", out, IMAGE_SECURITY_COUNTER_OFFSET, security_counter)
+    struct.pack_into("<I", out, IMAGE_KEY_ID_OFFSET, key_id(public_point(key)))
+    out[IMAGE_SHA256_OFFSET : IMAGE_SHA256_OFFSET + IMAGE_SHA256_SIZE] = hashlib.sha256(
+        body
+    ).digest()
+    out[
+        IMAGE_SIGNATURE_OFFSET + IMAGE_SIGNATURE_SIZE : IMAGE_HEADER_CRC_OFFSET
+    ] = bytes(IMAGE_HEADER_CRC_OFFSET - IMAGE_SIGNATURE_OFFSET - IMAGE_SIGNATURE_SIZE)
+    der = key.sign(bytes(out[:IMAGE_SIGNED_SIZE]), ec.ECDSA(hashes.SHA256()))
+    r, s = utils.decode_dss_signature(der)
+    out[IMAGE_SIGNATURE_OFFSET : IMAGE_SIGNATURE_OFFSET + IMAGE_SIGNATURE_SIZE] = r.to_bytes(
+        32, "big"
+    ) + s.to_bytes(32, "big")
+    struct.pack_into("<I", out, IMAGE_HEADER_CRC_OFFSET, zlib.crc32(out[:252]) & 0xFFFFFFFF)
+    return bytes(out)
+
+
+def verify_header_signature(header: bytes, key: Any) -> bool:
+    """Check a version 2 header's signature the way BOOT does."""
+    from cryptography.exceptions import InvalidSignature
+
+    hashes, _serialization, ec, utils = _crypto()
+    if len(header) < IMAGE_HEADER_SIZE:
+        return False
+    public = key.public_key() if hasattr(key, "public_key") else key
+    raw = header[IMAGE_SIGNATURE_OFFSET : IMAGE_SIGNATURE_OFFSET + IMAGE_SIGNATURE_SIZE]
+    if len(raw) != IMAGE_SIGNATURE_SIZE:
+        return False
+    der = utils.encode_dss_signature(
+        int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:], "big")
+    )
+    try:
+        public.verify(der, header[:IMAGE_SIGNED_SIZE], ec.ECDSA(hashes.SHA256()))
+    except InvalidSignature:
+        return False
+    return True
 
 
 def validate_vectors(binary: bytes) -> list[str]:
@@ -253,8 +410,14 @@ def build_image(
     entry: int | None = None,
     build_timestamp: int = 0,
     git_commit: str = "",
+    signing_key: Any = None,
+    security_counter: int = 0,
 ) -> bytes:
-    """Build an IBWH ``.img`` file from a raw application binary."""
+    """Build an IBWH ``.img`` file from a raw application binary.
+
+    Without ``signing_key`` the header is the unsigned version 1 format;
+    with it the header is version 2 and signed (BSAFE-006).
+    """
     errors = validate_vectors(payload)
     if errors:
         raise ImageError("; ".join(errors))
@@ -267,7 +430,7 @@ def build_image(
         header,
         0,
         IMAGE_MAGIC,
-        IMAGE_HEADER_VERSION,
+        IMAGE_HEADER_VERSION_UNSIGNED,
         IMAGE_HEADER_SIZE,
         IMAGE_TYPE_APPLICATION,
         version,
@@ -290,6 +453,9 @@ def build_image(
         name.encode("ascii", "replace")[:32].ljust(32, b"\0")
     )
     struct.pack_into("<I", header, _HEADER_CRC_OFFSET, zlib.crc32(header[:252]) & 0xFFFFFFFF)
+    if signing_key is not None:
+        key = load_key(signing_key) if isinstance(signing_key, (str, Path)) else signing_key
+        return sign_header(bytes(header), payload, key, security_counter) + payload
     return bytes(header) + payload
 
 
@@ -303,6 +469,10 @@ def _parse_img(path: Path) -> FirmwareImage:
         raise ImageError(f"{path.name}: truncated image payload")
     if zlib.crc32(payload) & 0xFFFFFFFF != int(fields["image_crc32"]):
         raise ImageError(f"{path.name}: image payload CRC32 mismatch")
+    if int(fields["header_version"]) == IMAGE_HEADER_VERSION and (
+        hashlib.sha256(payload).digest() != bytes(fields["image_sha256"])
+    ):
+        raise ImageError(f"{path.name}: image SHA-256 mismatch")
     errors = validate_vectors(payload)
     if errors:
         raise ImageError(f"{path.name}: " + "; ".join(errors))
@@ -324,6 +494,10 @@ def _parse_img(path: Path) -> FirmwareImage:
         git_commit=str(fields["git_commit"]),
         header=header,
         header_crc32=int(fields["header_crc32"]),
+        security_counter=int(fields["security_counter"]),
+        key_id=int(fields["key_id"]),
+        image_sha256=bytes(fields["image_sha256"]),
+        signature=bytes(fields["signature"]),
     )
 
 
@@ -450,7 +624,24 @@ def _image_from_memory(path: Path, kind: str, memory: dict[int, int]) -> Firmwar
     )
 
 
-def parse_image(path: str | Path, base_address: int = DEFAULT_FLASH_BASE) -> FirmwareImage:
+def parse_image(
+    path: str | Path,
+    base_address: int = DEFAULT_FLASH_BASE,
+    *,
+    public_key: Any = None,
+    require_signature: bool = False,
+) -> FirmwareImage:
+    """Parse an image; with a key, also verify the v2 signature (P0-04)."""
+    image = _parse_image(path, base_address)
+    if require_signature or public_key is not None:
+        if not image.is_signed:
+            raise ImageError(f"{image.path.name}: production images must be signed (v2)")
+        if public_key is not None and not image.verify_signature(public_key):
+            raise ImageError(f"{image.path.name}: image signature does not verify")
+    return image
+
+
+def _parse_image(path: str | Path, base_address: int) -> FirmwareImage:
     p = Path(path)
     if not p.is_file():
         raise ImageError(f"image not found: {p}")
@@ -484,11 +675,17 @@ __all__ = [
     "ImageError",
     "Segment",
     "build_image",
+    "key_id",
+    "load_key",
     "make_metadata_record",
     "parse_image",
     "parse_metadata_record",
+    "public_key_pem",
+    "public_point",
     "sha256_file",
+    "sign_header",
     "validate_vectors",
+    "verify_header_signature",
     "version_text",
     "write_stream",
 ]

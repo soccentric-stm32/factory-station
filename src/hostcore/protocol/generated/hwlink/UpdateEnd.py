@@ -28,14 +28,9 @@ class UpdateEnd(object):
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-def UpdateEndStart(builder):
-    builder.StartObject(0)
-
+def UpdateEndStart(builder): builder.StartObject(0)
 def Start(builder):
-    UpdateEndStart(builder)
-
-def UpdateEndEnd(builder):
-    return builder.EndObject()
-
+    return UpdateEndStart(builder)
+def UpdateEndEnd(builder): return builder.EndObject()
 def End(builder):
     return UpdateEndEnd(builder)

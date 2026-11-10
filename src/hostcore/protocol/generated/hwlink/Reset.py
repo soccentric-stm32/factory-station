@@ -28,14 +28,9 @@ class Reset(object):
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-def ResetStart(builder):
-    builder.StartObject(0)
-
+def ResetStart(builder): builder.StartObject(0)
 def Start(builder):
-    ResetStart(builder)
-
-def ResetEnd(builder):
-    return builder.EndObject()
-
+    return ResetStart(builder)
+def ResetEnd(builder): return builder.EndObject()
 def End(builder):
     return ResetEnd(builder)

@@ -42,26 +42,15 @@ class SetLedAll(object):
             return self._tab.Get(flatbuffers.number_types.Uint16Flags, o + self._tab.Pos)
         return 0
 
-def SetLedAllStart(builder):
-    builder.StartObject(2)
-
+def SetLedAllStart(builder): builder.StartObject(2)
 def Start(builder):
-    SetLedAllStart(builder)
-
-def SetLedAllAddPattern(builder, pattern):
-    builder.PrependUint8Slot(0, pattern, 0)
-
+    return SetLedAllStart(builder)
+def SetLedAllAddPattern(builder, pattern): builder.PrependUint8Slot(0, pattern, 0)
 def AddPattern(builder, pattern):
-    SetLedAllAddPattern(builder, pattern)
-
-def SetLedAllAddPeriodMs(builder, periodMs):
-    builder.PrependUint16Slot(1, periodMs, 0)
-
+    return SetLedAllAddPattern(builder, pattern)
+def SetLedAllAddPeriodMs(builder, periodMs): builder.PrependUint16Slot(1, periodMs, 0)
 def AddPeriodMs(builder, periodMs):
-    SetLedAllAddPeriodMs(builder, periodMs)
-
-def SetLedAllEnd(builder):
-    return builder.EndObject()
-
+    return SetLedAllAddPeriodMs(builder, periodMs)
+def SetLedAllEnd(builder): return builder.EndObject()
 def End(builder):
     return SetLedAllEnd(builder)

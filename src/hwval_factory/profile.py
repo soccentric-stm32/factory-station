@@ -241,6 +241,49 @@ class LabelSpec:
 
 
 @dataclass(slots=True)
+class SigningSpec:
+    """Image-authentication pins for one profile (BSAFE-006 / D-5).
+
+    The station never holds a private key: ``public_key`` is a PEM public key
+    and ``security_counter`` is the anti-rollback value the release pipeline
+    signed the factory image with.
+    """
+
+    public_key: str = ""
+    key_id: int = 0
+    security_counter: int = 0
+    allow_development_key: bool = False
+
+
+def _parse_signing(raw: dict[str, Any]) -> SigningSpec:
+    signing = raw.get("signing") or {}
+    if not isinstance(signing, dict):
+        raise ProfileError("manifest.signing must be a mapping")
+    key_id = signing.get("key_id", 0)
+    counter = signing.get("security_counter", 0)
+    try:
+        key_id_value = int(str(key_id), 0)
+        counter_value = int(str(counter), 0)
+    except (TypeError, ValueError) as exc:
+        raise ProfileError("signing.key_id and signing.security_counter must be integers") from exc
+    return SigningSpec(
+        public_key=str(signing.get("public_key") or ""),
+        key_id=key_id_value,
+        security_counter=counter_value,
+        allow_development_key=bool(signing.get("allow_development_key", False)),
+    )
+
+
+def _public_key_path(profile_dir: Path, value: str) -> Path | None:
+    if not value:
+        return None
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = profile_dir / candidate
+    return candidate.resolve() if candidate.is_file() else None
+
+
+@dataclass(slots=True)
 class ProductProfile:
     profile_id: str
     version: str
@@ -260,6 +303,11 @@ class ProductProfile:
     manifest: dict[str, Any] = field(default_factory=dict)
     signature: str = ""
     signature_public_key: str = ""
+    signing: SigningSpec = field(default_factory=SigningSpec)
+    production: bool = False
+    test_mode: str = "bench"
+    slot_b_after_test: str = "erase"
+    recipe: list[str] = field(default_factory=list)
     _tempdir: tempfile.TemporaryDirectory[str] | None = None
 
     @property
@@ -277,6 +325,77 @@ class ProductProfile:
     @property
     def app_image(self) -> ImageSpec:
         return self.images["app"]
+
+    @property
+    def factory_image(self) -> ImageSpec | None:
+        return self.images.get("factory")
+
+    @property
+    def signing_public_key_path(self) -> Path | None:
+        return _public_key_path(self.path, self.signing.public_key)
+
+    def check_signing(self) -> None:
+        """Refuse an unsafe or inconsistent signing configuration (P0-09).
+
+        Every check of section 6.3 items 1-4 that does not need the release
+        history lives here, so the station and ``hwval-profile verify`` use
+        the same rules.
+        """
+        app = self.app_image.image
+        if app is None:
+            raise ProfileError("manifest.images.app was not parsed")
+        if self.production and not app.is_signed:
+            raise ProfileError(
+                "production profile requires a signed (version 2) application image"
+            )
+        if app.is_signed:
+            key_path = self.signing_public_key_path
+            if self.signing.public_key and key_path is None:
+                raise ProfileError(
+                    f"signing.public_key {self.signing.public_key!r} is not a file in the profile"
+                )
+            if key_path is not None:
+                if not app.verify_signature(key_path):
+                    raise ProfileError(
+                        f"application signature does not verify with {key_path.name}"
+                    )
+                try:
+                    from hostcore.images import key_id, load_key, public_point
+
+                    point = public_point(load_key(key_path))
+                    actual_id = key_id(point)
+                except Exception as exc:
+                    raise ProfileError(f"cannot read signing public key: {exc}") from exc
+                if self.signing.key_id and actual_id != self.signing.key_id:
+                    raise ProfileError(
+                        f"signing.key_id 0x{self.signing.key_id:08x} != key in "
+                        f"{key_path.name} (0x{actual_id:08x})"
+                    )
+                if app.key_id != actual_id:
+                    raise ProfileError(
+                        f"application key id 0x{app.key_id:08x} != profile key "
+                        f"0x{actual_id:08x}"
+                    )
+                if self.production and actual_id == layout.DEVELOPMENT_KEY_ID:
+                    raise ProfileError(
+                        "production profile is signed with the published development key; "
+                        "use the product key"
+                    )
+                boot = self.boot_image.image
+                if self.production and boot is not None and point not in boot.data:
+                    raise ProfileError(
+                        "the BOOT image does not contain the profile's public key; "
+                        "it would refuse the application signature"
+                    )
+            if self.signing.security_counter and (
+                app.security_counter != self.signing.security_counter
+            ):
+                raise ProfileError(
+                    f"application security counter {app.security_counter} != "
+                    f"signing.security_counter {self.signing.security_counter}"
+                )
+            if self.production and not self.signing.public_key:
+                raise ProfileError("production profile requires signing.public_key")
 
     def accepts_revision(self, revision: str) -> bool:
         return not self.hw_revisions or revision.upper() in {r.upper() for r in self.hw_revisions}
@@ -363,8 +482,12 @@ def _parse_images(profile_dir: Path, raw: dict[str, Any]) -> dict[str, ImageSpec
             image=image,
         )
 
-    for role in ("test", "boot", "app"):
+    for role in ("test", "boot", "app", "factory", "test_slot"):
         entry = images_raw.get(role)
+        if entry is None:
+            if role in ("factory", "test_slot"):
+                continue
+            raise ProfileError(f"manifest.images.{role} is required")
         if role == "app" and isinstance(entry, list):
             if not entry:
                 raise ProfileError("manifest.images.app is empty")
@@ -633,6 +756,24 @@ def load_profile(
         if not signature and signature_file.is_file():
             signature = signature_file.read_text(encoding="ascii").strip()
         signature_key = str(raw.get("signature_public_key") or "")
+        signing = _parse_signing(raw)
+        production = bool(raw.get("production", False))
+        test_mode = str(raw.get("test_mode") or "bench")
+        if test_mode not in layout.TEST_MODE_CHOICES:
+            raise ProfileError(
+                f"test_mode {test_mode!r} is not one of {list(layout.TEST_MODE_CHOICES)}"
+            )
+        slot_b_after_test = str(raw.get("slot_b_after_test") or "erase")
+        if slot_b_after_test not in layout.SLOT_B_AFTER_TEST_CHOICES:
+            raise ProfileError(
+                f"slot_b_after_test {slot_b_after_test!r} is not one of "
+                f"{list(layout.SLOT_B_AFTER_TEST_CHOICES)}"
+            )
+        recipe_raw = raw.get("recipe") or []
+        if recipe_raw and (
+            not isinstance(recipe_raw, list) or not all(isinstance(s, str) for s in recipe_raw)
+        ):
+            raise ProfileError("manifest.recipe must be a list of step names")
         profile = ProductProfile(
             profile_id=profile_id,
             version=version,
@@ -652,9 +793,20 @@ def load_profile(
             manifest=raw,
             signature=signature,
             signature_public_key=signature_key,
+            signing=signing,
+            production=production,
+            test_mode=test_mode,
+            slot_b_after_test=slot_b_after_test,
+            recipe=[str(step) for step in recipe_raw],
             _tempdir=tempdir,
         )
         profile.check_factory_version()
+        profile.check_signing()
+        if profile.recipe:
+            # Local import: the registry depends on ProductProfile.
+            from hwval_factory.steps.registry import validate_recipe
+
+            validate_recipe(profile.recipe, has_calibration=bool(profile.calibration))
         if require_signature:
             if not public_key:
                 # A key shipped inside the same manifest proves nothing: an

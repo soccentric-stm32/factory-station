@@ -56,38 +56,21 @@ class UpdateResult(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
-def UpdateResultStart(builder):
-    builder.StartObject(4)
-
+def UpdateResultStart(builder): builder.StartObject(4)
 def Start(builder):
-    UpdateResultStart(builder)
-
-def UpdateResultAddSuccess(builder, success):
-    builder.PrependBoolSlot(0, success, 0)
-
+    return UpdateResultStart(builder)
+def UpdateResultAddSuccess(builder, success): builder.PrependBoolSlot(0, success, 0)
 def AddSuccess(builder, success):
-    UpdateResultAddSuccess(builder, success)
-
-def UpdateResultAddImageCrc32(builder, imageCrc32):
-    builder.PrependUint32Slot(1, imageCrc32, 0)
-
+    return UpdateResultAddSuccess(builder, success)
+def UpdateResultAddImageCrc32(builder, imageCrc32): builder.PrependUint32Slot(1, imageCrc32, 0)
 def AddImageCrc32(builder, imageCrc32):
-    UpdateResultAddImageCrc32(builder, imageCrc32)
-
-def UpdateResultAddError(builder, error):
-    builder.PrependUint16Slot(2, error, 0)
-
+    return UpdateResultAddImageCrc32(builder, imageCrc32)
+def UpdateResultAddError(builder, error): builder.PrependUint16Slot(2, error, 0)
 def AddError(builder, error):
-    UpdateResultAddError(builder, error)
-
-def UpdateResultAddDetail(builder, detail):
-    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(detail), 0)
-
+    return UpdateResultAddError(builder, error)
+def UpdateResultAddDetail(builder, detail): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(detail), 0)
 def AddDetail(builder, detail):
-    UpdateResultAddDetail(builder, detail)
-
-def UpdateResultEnd(builder):
-    return builder.EndObject()
-
+    return UpdateResultAddDetail(builder, detail)
+def UpdateResultEnd(builder): return builder.EndObject()
 def End(builder):
     return UpdateResultEnd(builder)

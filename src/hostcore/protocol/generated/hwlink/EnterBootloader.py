@@ -28,14 +28,9 @@ class EnterBootloader(object):
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-def EnterBootloaderStart(builder):
-    builder.StartObject(0)
-
+def EnterBootloaderStart(builder): builder.StartObject(0)
 def Start(builder):
-    EnterBootloaderStart(builder)
-
-def EnterBootloaderEnd(builder):
-    return builder.EndObject()
-
+    return EnterBootloaderStart(builder)
+def EnterBootloaderEnd(builder): return builder.EndObject()
 def End(builder):
     return EnterBootloaderEnd(builder)

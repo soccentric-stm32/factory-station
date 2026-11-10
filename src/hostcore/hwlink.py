@@ -20,6 +20,7 @@ from hostcore.protocol.generated.hwlink.Body import Body
 from hostcore.protocol.generated.hwlink.Role import Role
 from hostcore.protocol.generated.hwlink.TestVerdict import TestVerdict
 from hostcore.protocol.link import (
+    PROTOCOL_MINOR,
     FrameParser,
     LinkError,
     LinkSession,
@@ -193,6 +194,7 @@ class HwLinkSession:
         self.timeout = timeout
         self.identity: dict[str, Any] = {}
         self.role: int = 0
+        self.link_log: list[str] = []
         self._closed = False
 
         def _on_log(level: str, text: str) -> None:
@@ -206,10 +208,16 @@ class HwLinkSession:
                 retries=retries,
                 host_name="hwval-factory",
                 host_version=HOST_VERSION,
-                protocol_minor=1,
+                protocol_minor=PROTOCOL_MINOR,
             ),
             log_handler=_on_log,
         )
+
+    def _record(self, text: str) -> None:
+        """Keep a link-up trace (P0-10) without flooding the station log."""
+        self.link_log.append(text)
+        if self.log_handler:
+            self.log_handler(text)
 
     # -- lifecycle -----------------------------------------------------
     def close(self) -> None:
@@ -226,7 +234,7 @@ class HwLinkSession:
 
     # -- discovery -----------------------------------------------------
     def hello(self, timeout: float | None = None) -> dict[str, Any]:
-        body = codec.build_hello("hwval-factory", HOST_VERSION, 1)
+        body = codec.build_hello("hwval-factory", HOST_VERSION, PROTOCOL_MINOR)
         _, table = self._link.request(
             body,
             response_types={Body.HelloReply},
@@ -246,31 +254,39 @@ class HwLinkSession:
         expected_role: str | int | None = None,
         *,
         timeout: float | None = None,
+        link_retry_s: float = 0.5,
     ) -> dict[str, Any]:
         """Enter link mode if needed and return the normalized HelloReply.
 
-        HWVAL boots into its text CLI (LINK-010); write ``mode link`` and retry
-        when the first Hello times out.  The flag survives a reset, so an
+        HWVAL boots into its text CLI and may be running its boot test suite,
+        during which it ignores HWLINK (LINK-010).  Keep writing ``mode link``
+        at a bounded interval until a Hello is answered, the same persistence
+        as ``bootctl catch`` (P0-10).  The switch survives one reset, so an
         already-linked device answers immediately.
         """
         deadline = time.monotonic() + (timeout if timeout is not None else max(self.timeout, 10.0))
         last: Exception | None = None
-        text_mode_sent = False
+        next_link_at = time.monotonic()
+        link_attempts = 0
         while time.monotonic() < deadline:
             try:
                 reply = self.hello(timeout=min(2.0, max(0.3, deadline - time.monotonic())))
                 break
             except (LinkTimeout, LinkError) as exc:
                 last = exc
-                if not text_mode_sent:
-                    text_mode_sent = True
+                now = time.monotonic()
+                if now >= next_link_at:
+                    link_attempts += 1
+                    self._record(f"link-up: mode link ({link_attempts})")
                     with contextlib.suppress(Exception):
                         self.transport.write(b"mode link\r")
-                    time.sleep(0.2)
-                else:
-                    time.sleep(0.15)
+                    next_link_at = now + link_retry_s
+                time.sleep(0.15)
         else:
-            raise HwLinkError(f"firmware did not answer HWLINK Hello: {last}")
+            raise HwLinkError(
+                f"firmware did not answer HWLINK Hello after {link_attempts} "
+                f"mode-link attempt(s): {last}"
+            )
         major = int(reply.get("protocol_major", 0))
         if major != 1:
             raise HwLinkError(f"unsupported HWLINK protocol major {major}")
@@ -279,6 +295,10 @@ class HwLinkSession:
             raise HwLinkError(
                 f"expected {expected_role} role, device reports {reply.get('role_name')}"
             )
+        self._record(
+            f"link-up: {reply.get('role_name')} {reply.get('firmware_name')} "
+            f"{reply.get('version')} (minor {reply.get('protocol_minor')})"
+        )
         return reply
 
     def request(self, payload: bytes, *, response_types: set[int] | None = None, timeout: float | None = None) -> Any:
@@ -445,14 +465,15 @@ class HwLinkSession:
         *,
         chunk_size: int = 1024,
         activate: bool = True,
+        force: bool = False,
         progress: Callable[[int, int], None] | None = None,
         abort_event: threading.Event | None = None,
     ) -> dict[str, Any]:
-        """Upload an IBWH image to BOOT over HWLINK (B-13)."""
+        """Upload a signed IBWH image to BOOT over HWLINK (B-13 / P0-07)."""
         header = image.header_dict()
         body = bytes(image.data)
         self.request(
-            codec.build_update_begin(header),
+            codec.build_update_begin(header, force=force),
             response_types={Body.Ack},
             timeout=5.0,
         )

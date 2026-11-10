@@ -67,3 +67,21 @@ The run ends as `ABORTED`/`ERROR` and the database records the last safe state
 (`erased`, `test_programmed`, `app_programmed`, `provisioned`, `protected`).
 Reconnect the probe and start a **Retest** or **Rework** run; the next run
 detects the safe state and recovers the unit.
+
+## Prefer the recovery tool
+
+The `tool recover` commands wrap the OpenOCD sequence with the same audit and
+role checks as the station:
+
+| Situation | Command |
+|---|---|
+| Application does not answer HWLINK | `hwval-factory tool recover --fixture F1 --profile P catch` |
+| A trial never ends / BOOT keeps rolling back | `hwval-factory tool recover --fixture F1 --profile P unstick` |
+| Read-protected board (RDP 1) | `hwval-factory tool recover --fixture F1 --profile P unlock-rdp --reason CODE --confirm` |
+| OpenOCD cannot attach normally | `hwval-factory tool recover --fixture F1 --profile P connect` |
+
+`catch` keeps sending Hello every 50 ms while an SWD reset releases the
+board, so it reaches BOOT inside the 500 ms listen window. `unstick` resets
+and waits for BOOT to finish or reject the trial before returning the
+application. Both are simulator-tested; record the hardware result in
+`docs/hardware-verification.md`.

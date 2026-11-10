@@ -35,20 +35,12 @@ class SetBaud(object):
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-def SetBaudStart(builder):
-    builder.StartObject(1)
-
+def SetBaudStart(builder): builder.StartObject(1)
 def Start(builder):
-    SetBaudStart(builder)
-
-def SetBaudAddRate(builder, rate):
-    builder.PrependUint32Slot(0, rate, 0)
-
+    return SetBaudStart(builder)
+def SetBaudAddRate(builder, rate): builder.PrependUint32Slot(0, rate, 0)
 def AddRate(builder, rate):
-    SetBaudAddRate(builder, rate)
-
-def SetBaudEnd(builder):
-    return builder.EndObject()
-
+    return SetBaudAddRate(builder, rate)
+def SetBaudEnd(builder): return builder.EndObject()
 def End(builder):
     return SetBaudEnd(builder)

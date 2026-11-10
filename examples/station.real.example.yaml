@@ -19,6 +19,7 @@ fixtures:
     telnet_port: 4444
     position: 0
     power: { driver: none }  # usb-hub: {location: "1-2", port: 1}
+    debug_uart: ""           # optional USB-UART on PG14, e.g. /dev/serial/by-id/…
   - name: F2
     probe_serial: "066BFF3031323334F2"
     telnet_port: 4445
@@ -64,5 +65,11 @@ security:
   maintenance_count: 10000
   require_profile_signature: false
   profile_public_key: ""   # base64 Ed25519 public key when signatures are required
+
+# Optional shared serial/MAC pool for several stations (P4).  Leave the URL
+# empty to use the local SQLite pool.
+central_pool:
+  url: ""          # postgresql://hwval:secret@db.example/hwval
+  station_id: STN-01
 
 kiosk: true

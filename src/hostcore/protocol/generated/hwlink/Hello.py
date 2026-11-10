@@ -49,32 +49,18 @@ class Hello(object):
             return self._tab.Get(flatbuffers.number_types.Uint16Flags, o + self._tab.Pos)
         return 0
 
-def HelloStart(builder):
-    builder.StartObject(3)
-
+def HelloStart(builder): builder.StartObject(3)
 def Start(builder):
-    HelloStart(builder)
-
-def HelloAddHostName(builder, hostName):
-    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(hostName), 0)
-
+    return HelloStart(builder)
+def HelloAddHostName(builder, hostName): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(hostName), 0)
 def AddHostName(builder, hostName):
-    HelloAddHostName(builder, hostName)
-
-def HelloAddHostVersion(builder, hostVersion):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(hostVersion), 0)
-
+    return HelloAddHostName(builder, hostName)
+def HelloAddHostVersion(builder, hostVersion): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(hostVersion), 0)
 def AddHostVersion(builder, hostVersion):
-    HelloAddHostVersion(builder, hostVersion)
-
-def HelloAddProtocolMinor(builder, protocolMinor):
-    builder.PrependUint16Slot(2, protocolMinor, 0)
-
+    return HelloAddHostVersion(builder, hostVersion)
+def HelloAddProtocolMinor(builder, protocolMinor): builder.PrependUint16Slot(2, protocolMinor, 0)
 def AddProtocolMinor(builder, protocolMinor):
-    HelloAddProtocolMinor(builder, protocolMinor)
-
-def HelloEnd(builder):
-    return builder.EndObject()
-
+    return HelloAddProtocolMinor(builder, protocolMinor)
+def HelloEnd(builder): return builder.EndObject()
 def End(builder):
     return HelloEnd(builder)

@@ -139,108 +139,84 @@ class ImageHeader(object):
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-def ImageHeaderStart(builder):
-    builder.StartObject(13)
+    # ImageHeader
+    def Extension(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(30))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
+        return 0
 
+    # ImageHeader
+    def ExtensionAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(30))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint8Flags, o)
+        return 0
+
+    # ImageHeader
+    def ExtensionLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(30))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ImageHeader
+    def ExtensionIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(30))
+        return o == 0
+
+def ImageHeaderStart(builder): builder.StartObject(14)
 def Start(builder):
-    ImageHeaderStart(builder)
-
-def ImageHeaderAddMagic(builder, magic):
-    builder.PrependUint32Slot(0, magic, 0)
-
+    return ImageHeaderStart(builder)
+def ImageHeaderAddMagic(builder, magic): builder.PrependUint32Slot(0, magic, 0)
 def AddMagic(builder, magic):
-    ImageHeaderAddMagic(builder, magic)
-
-def ImageHeaderAddHeaderVersion(builder, headerVersion):
-    builder.PrependUint16Slot(1, headerVersion, 0)
-
+    return ImageHeaderAddMagic(builder, magic)
+def ImageHeaderAddHeaderVersion(builder, headerVersion): builder.PrependUint16Slot(1, headerVersion, 0)
 def AddHeaderVersion(builder, headerVersion):
-    ImageHeaderAddHeaderVersion(builder, headerVersion)
-
-def ImageHeaderAddHeaderSize(builder, headerSize):
-    builder.PrependUint16Slot(2, headerSize, 0)
-
+    return ImageHeaderAddHeaderVersion(builder, headerVersion)
+def ImageHeaderAddHeaderSize(builder, headerSize): builder.PrependUint16Slot(2, headerSize, 0)
 def AddHeaderSize(builder, headerSize):
-    ImageHeaderAddHeaderSize(builder, headerSize)
-
-def ImageHeaderAddImageType(builder, imageType):
-    builder.PrependUint32Slot(3, imageType, 0)
-
+    return ImageHeaderAddHeaderSize(builder, headerSize)
+def ImageHeaderAddImageType(builder, imageType): builder.PrependUint32Slot(3, imageType, 0)
 def AddImageType(builder, imageType):
-    ImageHeaderAddImageType(builder, imageType)
-
-def ImageHeaderAddVersion(builder, version):
-    builder.PrependUint32Slot(4, version, 0)
-
+    return ImageHeaderAddImageType(builder, imageType)
+def ImageHeaderAddVersion(builder, version): builder.PrependUint32Slot(4, version, 0)
 def AddVersion(builder, version):
-    ImageHeaderAddVersion(builder, version)
-
-def ImageHeaderAddImageSize(builder, imageSize):
-    builder.PrependUint32Slot(5, imageSize, 0)
-
+    return ImageHeaderAddVersion(builder, version)
+def ImageHeaderAddImageSize(builder, imageSize): builder.PrependUint32Slot(5, imageSize, 0)
 def AddImageSize(builder, imageSize):
-    ImageHeaderAddImageSize(builder, imageSize)
-
-def ImageHeaderAddImageCrc32(builder, imageCrc32):
-    builder.PrependUint32Slot(6, imageCrc32, 0)
-
+    return ImageHeaderAddImageSize(builder, imageSize)
+def ImageHeaderAddImageCrc32(builder, imageCrc32): builder.PrependUint32Slot(6, imageCrc32, 0)
 def AddImageCrc32(builder, imageCrc32):
-    ImageHeaderAddImageCrc32(builder, imageCrc32)
-
-def ImageHeaderAddLoadAddress(builder, loadAddress):
-    builder.PrependUint32Slot(7, loadAddress, 0)
-
+    return ImageHeaderAddImageCrc32(builder, imageCrc32)
+def ImageHeaderAddLoadAddress(builder, loadAddress): builder.PrependUint32Slot(7, loadAddress, 0)
 def AddLoadAddress(builder, loadAddress):
-    ImageHeaderAddLoadAddress(builder, loadAddress)
-
-def ImageHeaderAddEntryAddress(builder, entryAddress):
-    builder.PrependUint32Slot(8, entryAddress, 0)
-
+    return ImageHeaderAddLoadAddress(builder, loadAddress)
+def ImageHeaderAddEntryAddress(builder, entryAddress): builder.PrependUint32Slot(8, entryAddress, 0)
 def AddEntryAddress(builder, entryAddress):
-    ImageHeaderAddEntryAddress(builder, entryAddress)
-
-def ImageHeaderAddBuildTimestamp(builder, buildTimestamp):
-    builder.PrependUint32Slot(9, buildTimestamp, 0)
-
+    return ImageHeaderAddEntryAddress(builder, entryAddress)
+def ImageHeaderAddBuildTimestamp(builder, buildTimestamp): builder.PrependUint32Slot(9, buildTimestamp, 0)
 def AddBuildTimestamp(builder, buildTimestamp):
-    ImageHeaderAddBuildTimestamp(builder, buildTimestamp)
-
-def ImageHeaderAddGitCommit(builder, gitCommit):
-    builder.PrependUOffsetTRelativeSlot(10, flatbuffers.number_types.UOffsetTFlags.py_type(gitCommit), 0)
-
+    return ImageHeaderAddBuildTimestamp(builder, buildTimestamp)
+def ImageHeaderAddGitCommit(builder, gitCommit): builder.PrependUOffsetTRelativeSlot(10, flatbuffers.number_types.UOffsetTFlags.py_type(gitCommit), 0)
 def AddGitCommit(builder, gitCommit):
-    ImageHeaderAddGitCommit(builder, gitCommit)
-
-def ImageHeaderStartGitCommitVector(builder, numElems):
-    return builder.StartVector(1, numElems, 1)
-
+    return ImageHeaderAddGitCommit(builder, gitCommit)
+def ImageHeaderStartGitCommitVector(builder, numElems): return builder.StartVector(1, numElems, 1)
 def StartGitCommitVector(builder, numElems):
     return ImageHeaderStartGitCommitVector(builder, numElems)
-
-def ImageHeaderCreateGitCommitVector(builder, data):
-    data = list(data)
-    builder.StartVector(1, len(data), 1)
-    for item in reversed(data):
-        builder.PrependUint8(item)
-    return builder.EndVector()
-
-def CreateGitCommitVector(builder, data):
-    ImageHeaderCreateGitCommitVector(builder, data)
-
-def ImageHeaderAddName(builder, name):
-    builder.PrependUOffsetTRelativeSlot(11, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
-
+def ImageHeaderAddName(builder, name): builder.PrependUOffsetTRelativeSlot(11, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
 def AddName(builder, name):
-    ImageHeaderAddName(builder, name)
-
-def ImageHeaderAddHeaderCrc32(builder, headerCrc32):
-    builder.PrependUint32Slot(12, headerCrc32, 0)
-
+    return ImageHeaderAddName(builder, name)
+def ImageHeaderAddHeaderCrc32(builder, headerCrc32): builder.PrependUint32Slot(12, headerCrc32, 0)
 def AddHeaderCrc32(builder, headerCrc32):
-    ImageHeaderAddHeaderCrc32(builder, headerCrc32)
-
-def ImageHeaderEnd(builder):
-    return builder.EndObject()
-
+    return ImageHeaderAddHeaderCrc32(builder, headerCrc32)
+def ImageHeaderAddExtension(builder, extension): builder.PrependUOffsetTRelativeSlot(13, flatbuffers.number_types.UOffsetTFlags.py_type(extension), 0)
+def AddExtension(builder, extension):
+    return ImageHeaderAddExtension(builder, extension)
+def ImageHeaderStartExtensionVector(builder, numElems): return builder.StartVector(1, numElems, 1)
+def StartExtensionVector(builder, numElems):
+    return ImageHeaderStartExtensionVector(builder, numElems)
+def ImageHeaderEnd(builder): return builder.EndObject()
 def End(builder):
     return ImageHeaderEnd(builder)

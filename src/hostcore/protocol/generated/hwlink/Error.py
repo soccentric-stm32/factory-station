@@ -17,3 +17,5 @@ class Error(object):
     FLASH_ERROR = 11
     CRC_MISMATCH = 12
     WRONG_FLASH_MODE = 13
+    AUTH_FAILED = 14
+    ROLLBACK = 15

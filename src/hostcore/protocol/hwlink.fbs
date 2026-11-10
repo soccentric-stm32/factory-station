@@ -35,7 +35,13 @@ enum Error : ushort {
     OUT_OF_ORDER    = 10,
     FLASH_ERROR     = 11,
     CRC_MISMATCH    = 12,
-    WRONG_FLASH_MODE = 13
+    WRONG_FLASH_MODE = 13,
+    // Protocol minor 3 (BSAFE-006): the image is unsigned, signed with a
+    // different key, has a bad signature or a SHA-256 mismatch.
+    AUTH_FAILED     = 14,
+    // Protocol minor 3 (BSAFE-006): the image's security counter is below
+    // the counter of an installed, confirmed image.
+    ROLLBACK        = 15
 }
 
 enum LogLevel : ubyte {
@@ -253,6 +259,14 @@ table ImageHeader {
     build_timestamp:uint32;
     git_commit:[ubyte];
     name:string;
+    // IMG-001: CRC32 of header bytes 0..251.  Appended for protocol
+    // minor 1; older hosts may omit it, in which case BOOT recomputes it.
+    header_crc32:uint32;
+    // Protocol minor 3 (BSAFE-006): header bytes 88..251 verbatim.  For a
+    // version 2 header these hold the security counter, key id, image
+    // SHA-256 and ECDSA P-256 signature.  Older hosts omit it and BOOT
+    // fills the bytes with zeros.
+    extension:[ubyte];
 }
 
 table BootSlotInfo {
@@ -270,6 +284,8 @@ table BootSlotInfo {
     name:string;
     image_size:uint32;
     detail:string;
+    // Protocol minor 3 (BSAFE-006): anti-rollback counter of the image.
+    security_counter:uint32;
 }
 
 table BootInfo {
@@ -278,10 +294,29 @@ table BootInfo {
     rejected_slot:Slot;
     flash_mode:FlashMode;
     slots:[BootSlotInfo];
+    // Protocol minor 2 (P0-3): BOOT reports whether it found a bootable
+    // slot and which slot it will write on the next update.  Hosts must
+    // use target_slot instead of guessing "the slot that is not active".
+    active_valid:bool;
+    target_slot:Slot;
+    // Protocol minor 2 (P3-9): BOOT's own build so hosts can detect an
+    // outdated bootloader.
+    boot_version:string;
+    boot_build:string;
+    // Protocol minor 3 (BSAFE-006): whether BOOT only accepts signed
+    // images, the id of its public key (first four bytes of its SHA-256,
+    // little-endian) and the current anti-rollback floor.
+    signed_images:bool;
+    key_id:uint32;
+    security_floor:uint32;
 }
 
 table UpdateBegin {
     header:ImageHeader;
+    // Protocol minor 2 (P0-1): bench-only override that allows an update
+    // while the active slot is still on trial.  Production hosts must not
+    // set it: the other slot is the only rollback image.
+    force:bool;
 }
 
 table UpdateData {
@@ -307,7 +342,6 @@ table UpdateAbort {
 
 table GetBootInfo {
 }
-
 
 // ------------------------------------------------------------------- HWVAL
 

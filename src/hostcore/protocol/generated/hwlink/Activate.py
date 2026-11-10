@@ -28,14 +28,9 @@ class Activate(object):
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-def ActivateStart(builder):
-    builder.StartObject(0)
-
+def ActivateStart(builder): builder.StartObject(0)
 def Start(builder):
-    ActivateStart(builder)
-
-def ActivateEnd(builder):
-    return builder.EndObject()
-
+    return ActivateStart(builder)
+def ActivateEnd(builder): return builder.EndObject()
 def End(builder):
     return ActivateEnd(builder)

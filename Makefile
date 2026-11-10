@@ -37,7 +37,7 @@ export PYTHONPATH := src$(if $(PYTHONPATH),$(PATHSEP)$(PYTHONPATH))
 
 .PHONY: help venv install dev packaging-deps run demo smoke self-test test \
 	lint format typecheck check build package-linux package-windows \
-	version clean clean-data clean-all
+	hostkit version clean clean-data clean-all
 
 help: ## Show this help
 	@echo "HWVAL Factory — common targets"
@@ -102,14 +102,17 @@ self-test: install ## Run the fixture golden-board self-test
 	$(PY) -m hwval_factory --self-test --station $(STATION) \
 		--profile $(PROFILE) --fixture $(FIXTURE)
 
+hostkit: ## Vendor the canonical HWLINK bundle and regenerate the schema
+	$(PYTHON) scripts/update_hostkit.py
+
 test: dev ## Run the pytest contract and simulator suite
 	$(PY) -m pytest
 
 lint: dev ## Run ruff
-	$(PY) -m ruff check src packaging/launcher.py
+	$(PY) -m ruff check src scripts/update_hostkit.py packaging/launcher.py
 
 format: dev ## Format Python sources with ruff
-	$(PY) -m ruff format src packaging/launcher.py
+	$(PY) -m ruff format src scripts/update_hostkit.py packaging/launcher.py
 
 typecheck: dev ## Run mypy in strict mode
 	$(PY) -m mypy --strict src

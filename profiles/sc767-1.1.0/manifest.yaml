@@ -1,0 +1,123 @@
+profile: sc767
+version: 1.1.0
+product: SoCcentric STM32F767ZI board
+hw_revisions:
+- B
+- C
+min_factory_version: 0.1.0
+released:
+  by: Sandesh Ghimire
+  at: '2026-11-06'
+production: false
+test_mode: bench
+slot_b_after_test: erase
+parts:
+  dev_id: 1105
+  rev_id:
+  - 4097
+  - 4099
+  flash_kb: 2048
+images:
+  test:
+    file: hwval-1.0.0.elf
+    sha256: 2fb9026e369d8aa3a2e31c37da8381b78c0622eba2c2465678a8c2449bcd85b3
+  boot:
+    file: boot-1.1.0.hex
+    sha256: 45df40f068c28882cda5c3462fc1eff8944fcdc706ed58e51c5c437e10c9c132
+  app:
+    file: app-0.1.0-signed.img
+    sha256: 904a0e0a0e2939cbbccfa18b09552844121ca2b23832b9cccac30030188baea1
+    slot: A
+  factory:
+    file: factory-1.1.0.hex
+    sha256: 005c7e0405fa78537469be26bcf235a970d70c79b661bf7181ba2ea33fa0bc82
+signing:
+  public_key: signing-public-key.pem
+  key_id: '0xfaa7171b'
+  security_counter: 1
+  allow_development_key: true
+layout:
+  slot_a: '0x0800C000'
+boot_metadata:
+  address: '0x08008000'
+boot_build: debug-uart-on
+provisioning:
+  address: '0x08104000'
+  swapped_address: '0x08004000'
+  customer:
+    '0x40': SoCcentric
+  custom: {}
+boot_check:
+  role: APP
+  timeout_s: 15
+hello_timeout_s: 15
+test_plan:
+  tests:
+  - DEV.*
+  - CORE.001
+  - CLK.001
+  - CLK.002
+  - RAM.006
+  - FLS.001
+  - ADC.001
+  - ADC.002
+  - PWR.001
+  - GPIO.004
+  - LED.*
+  - BTN.001
+  - UART.001
+  - ETH.001
+  allow_operator: true
+  timeout_s: 180
+  destructive_allowed: false
+calibration:
+- field: '0x20'
+  from: PWR.001
+  rule: round(value)
+  range:
+  - 3135
+  - 3465
+  unit: mV
+identity:
+  serial: SC767-{yyww}-{counter:06}-{luhn}
+  mac:
+    enabled: true
+    oui_block: 02:00:00:00:00:00/24
+    allow_local: true
+protection:
+  nDBANK: 0
+  nDBOOT: 1
+  BOR_LEV: 3
+  wrp_sectors:
+    bank1:
+    - 0
+    - 1
+    bank2:
+    - 1
+  rdp: 1
+  BOOT_ADD0: 128
+  BOOT_ADD1: 64
+label:
+  template: label-50x25.zpl
+  fields:
+  - serial
+  - mac
+  - product
+  - hw_revision
+  - date
+  - fw_version
+  width_mm: 50
+  height_mm: 25
+steps:
+  enabled:
+    calibrate: true
+    protect: true
+    label: true
+  retries:
+    identify: 1
+    prepare: 1
+    test: 1
+    program: 1
+    boot_check: 2
+    label: 1
+app_load: swd

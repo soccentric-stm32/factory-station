@@ -205,6 +205,17 @@ class SimulatedChip:
         image_crc = struct.unpack_from("<I", header, 20)[0] if present else 0
         version = struct.unpack_from("<I", header, 12)[0] if present else 0
         image_size = struct.unpack_from("<I", header, 16)[0] if present else 0
+        header_version = struct.unpack_from("<H", header, 4)[0] if present else 0
+        security_counter = (
+            struct.unpack_from("<I", header, layout.IMAGE_SECURITY_COUNTER_OFFSET)[0]
+            if present and header_version == layout.IMAGE_HEADER_VERSION
+            else 0
+        )
+        key_id = (
+            struct.unpack_from("<I", header, layout.IMAGE_KEY_ID_OFFSET)[0]
+            if present and header_version == layout.IMAGE_HEADER_VERSION
+            else 0
+        )
         name = header[56:88].rstrip(b"\0").decode("ascii", "replace") if present else ""
         valid = (
             present
@@ -221,6 +232,9 @@ class SimulatedChip:
             "image_crc32": image_crc,
             "sequence": activated[1],
             "name": name,
+            "header_version": header_version,
+            "security_counter": security_counter,
+            "key_id": key_id,
         }
 
     def parse_record(self) -> ParsedRecord | None:
@@ -284,6 +298,9 @@ class SimulatedOpenOcd:
         self.random = random.Random(seed or hash(chip.name) & 0xFFFF)
         self._started = False
         self._erased_mass = False
+        # Fault injection for P2-03: the next option-byte write dies as if the
+        # board lost power mid-sequence.
+        self.fail_options_once = False
 
     def _log(self, text: str) -> None:
         self.log.append(text)
@@ -458,6 +475,9 @@ class SimulatedOpenOcd:
 
     def write_option_bytes(self, optcr: int, optcr1: int) -> None:
         self._maybe_fault()
+        if self.fail_options_once:
+            self.fail_options_once = False
+            raise OpenOcdError("simulated power loss during option-byte write")
         new_rdp = _rdp_level(optcr)
         if new_rdp == 2:
             raise OpenOcdError("RDP level 2 is never permitted")
@@ -633,6 +653,7 @@ class FactorySimulatedDevice(BaseSimulatedDevice):
                 "name": str(boot["name"]),
                 "image_size": int(boot["image_size"]),
                 "detail": "confirmed" if boot["valid"] else "no valid image",
+                "security_counter": int(boot["security_counter"]),
             },
             {
                 "slot": Slot.B,
@@ -649,13 +670,22 @@ class FactorySimulatedDevice(BaseSimulatedDevice):
                 "name": "",
                 "image_size": 0,
                 "detail": "empty",
+                "security_counter": 0,
             },
         ]
+        floor = max((int(slot["security_counter"]) for slot in slots if slot["confirmed"]), default=0)
         return {
             "active_slot": active,
             "last_outcome": BootOutcome.BOOTED if boot["valid"] else BootOutcome.UNKNOWN,
             "rejected_slot": Slot.UNKNOWN,
             "flash_mode": FlashMode.DUAL_BANK if (self.chip.optcr >> 29) & 1 == 0 else FlashMode.SINGLE_BANK,
+            "active_valid": bool(boot["valid"]),
+            "target_slot": Slot.B,
+            "boot_version": "0.1.0",
+            "boot_build": "simulated",
+            "signed_images": bool(self.signed_images),
+            "key_id": int(boot["key_id"]),
+            "security_floor": floor,
             "slots": slots,
         }
 
@@ -750,6 +780,11 @@ def _ibwh_header_bytes(header: dict[str, Any]) -> bytes:
     raw[36:56] = commit
     name = str(header.get("name", "")).encode("ascii", "replace")[:32].ljust(32, b"\0")
     raw[56:88] = name
+    extension = bytes(header.get("extension") or b"")
+    if extension:
+        raw[layout.IMAGE_EXTENSION_OFFSET : layout.IMAGE_EXTENSION_OFFSET + layout.IMAGE_EXTENSION_SIZE] = (
+            extension[: layout.IMAGE_EXTENSION_SIZE].ljust(layout.IMAGE_EXTENSION_SIZE, b"\0")
+        )
     struct.pack_into("<I", raw, 252, zlib.crc32(raw[:252]) & 0xFFFFFFFF)
     return bytes(raw)
 

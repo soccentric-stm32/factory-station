@@ -63,7 +63,7 @@ class BootInfo(object):
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
-            from .BootSlotInfo import BootSlotInfo
+            from hostcore.protocol.generated.hwlink.BootSlotInfo import BootSlotInfo
             obj = BootSlotInfo()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -81,56 +81,97 @@ class BootInfo(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         return o == 0
 
-def BootInfoStart(builder):
-    builder.StartObject(5)
+    # BootInfo
+    def ActiveValid(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
 
+    # BootInfo
+    def TargetSlot(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
+        return 0
+
+    # BootInfo
+    def BootVersion(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # BootInfo
+    def BootBuild(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # BootInfo
+    def SignedImages(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(22))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+    # BootInfo
+    def KeyId(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(24))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+    # BootInfo
+    def SecurityFloor(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+def BootInfoStart(builder): builder.StartObject(12)
 def Start(builder):
-    BootInfoStart(builder)
-
-def BootInfoAddActiveSlot(builder, activeSlot):
-    builder.PrependUint8Slot(0, activeSlot, 0)
-
+    return BootInfoStart(builder)
+def BootInfoAddActiveSlot(builder, activeSlot): builder.PrependUint8Slot(0, activeSlot, 0)
 def AddActiveSlot(builder, activeSlot):
-    BootInfoAddActiveSlot(builder, activeSlot)
-
-def BootInfoAddLastOutcome(builder, lastOutcome):
-    builder.PrependUint8Slot(1, lastOutcome, 0)
-
+    return BootInfoAddActiveSlot(builder, activeSlot)
+def BootInfoAddLastOutcome(builder, lastOutcome): builder.PrependUint8Slot(1, lastOutcome, 0)
 def AddLastOutcome(builder, lastOutcome):
-    BootInfoAddLastOutcome(builder, lastOutcome)
-
-def BootInfoAddRejectedSlot(builder, rejectedSlot):
-    builder.PrependUint8Slot(2, rejectedSlot, 0)
-
+    return BootInfoAddLastOutcome(builder, lastOutcome)
+def BootInfoAddRejectedSlot(builder, rejectedSlot): builder.PrependUint8Slot(2, rejectedSlot, 0)
 def AddRejectedSlot(builder, rejectedSlot):
-    BootInfoAddRejectedSlot(builder, rejectedSlot)
-
-def BootInfoAddFlashMode(builder, flashMode):
-    builder.PrependUint8Slot(3, flashMode, 0)
-
+    return BootInfoAddRejectedSlot(builder, rejectedSlot)
+def BootInfoAddFlashMode(builder, flashMode): builder.PrependUint8Slot(3, flashMode, 0)
 def AddFlashMode(builder, flashMode):
-    BootInfoAddFlashMode(builder, flashMode)
-
-def BootInfoAddSlots(builder, slots):
-    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(slots), 0)
-
+    return BootInfoAddFlashMode(builder, flashMode)
+def BootInfoAddSlots(builder, slots): builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(slots), 0)
 def AddSlots(builder, slots):
-    BootInfoAddSlots(builder, slots)
-
-def BootInfoStartSlotsVector(builder, numElems):
-    return builder.StartVector(4, numElems, 4)
-
+    return BootInfoAddSlots(builder, slots)
+def BootInfoStartSlotsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def StartSlotsVector(builder, numElems):
     return BootInfoStartSlotsVector(builder, numElems)
-
-def BootInfoCreateSlotsVector(builder, data):
-    return builder.CreateVectorOfTables(data)
-
-def CreateSlotsVector(builder, data):
-    BootInfoCreateSlotsVector(builder, data)
-
-def BootInfoEnd(builder):
-    return builder.EndObject()
-
+def BootInfoAddActiveValid(builder, activeValid): builder.PrependBoolSlot(5, activeValid, 0)
+def AddActiveValid(builder, activeValid):
+    return BootInfoAddActiveValid(builder, activeValid)
+def BootInfoAddTargetSlot(builder, targetSlot): builder.PrependUint8Slot(6, targetSlot, 0)
+def AddTargetSlot(builder, targetSlot):
+    return BootInfoAddTargetSlot(builder, targetSlot)
+def BootInfoAddBootVersion(builder, bootVersion): builder.PrependUOffsetTRelativeSlot(7, flatbuffers.number_types.UOffsetTFlags.py_type(bootVersion), 0)
+def AddBootVersion(builder, bootVersion):
+    return BootInfoAddBootVersion(builder, bootVersion)
+def BootInfoAddBootBuild(builder, bootBuild): builder.PrependUOffsetTRelativeSlot(8, flatbuffers.number_types.UOffsetTFlags.py_type(bootBuild), 0)
+def AddBootBuild(builder, bootBuild):
+    return BootInfoAddBootBuild(builder, bootBuild)
+def BootInfoAddSignedImages(builder, signedImages): builder.PrependBoolSlot(9, signedImages, 0)
+def AddSignedImages(builder, signedImages):
+    return BootInfoAddSignedImages(builder, signedImages)
+def BootInfoAddKeyId(builder, keyId): builder.PrependUint32Slot(10, keyId, 0)
+def AddKeyId(builder, keyId):
+    return BootInfoAddKeyId(builder, keyId)
+def BootInfoAddSecurityFloor(builder, securityFloor): builder.PrependUint32Slot(11, securityFloor, 0)
+def AddSecurityFloor(builder, securityFloor):
+    return BootInfoAddSecurityFloor(builder, securityFloor)
+def BootInfoEnd(builder): return builder.EndObject()
 def End(builder):
     return BootInfoEnd(builder)

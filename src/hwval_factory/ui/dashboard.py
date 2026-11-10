@@ -130,6 +130,10 @@ class DashboardView(QWidget):
 
         self.cycle_table = DataTable(["Group", "Runs", "Average cycle", "Fastest", "Slowest"])
         root.addWidget(self.cycle_table, 1)
+        self.step_cycle_table = DataTable(
+            ["Step", "Runs", "Median", "p95", "Slowest"]
+        )
+        root.addWidget(self.step_cycle_table, 1)
 
         self.table = DataTable(
             [
@@ -197,6 +201,18 @@ class DashboardView(QWidget):
                     ]
                 )
         self.cycle_table.set_rows(cycle_rows)
+        self.step_cycle_table.set_rows(
+            [
+                [
+                    item["name"],
+                    item["runs"],
+                    f"{item['median_ms']:.0f} ms",
+                    f"{item['p95_ms']:.0f} ms",
+                    f"{item['max_ms']:.0f} ms",
+                ]
+                for item in self.db.step_stats(since=since)
+            ]
+        )
         rows = self.db.search_runs(work_order=work_order, since=since, limit=200)
         self.table.set_rows(
             [

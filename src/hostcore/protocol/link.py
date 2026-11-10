@@ -49,7 +49,8 @@ class NakError(LinkError):
         self.code = code
         self.detail = detail
         self.expected_offset = expected_offset
-        super().__init__(f"Nak {code}: {detail}" if detail else f"Nak {code}")
+        name = ERROR_NAMES.get(code, f"ERROR_{code}")
+        super().__init__(f"{name}: {detail}" if detail else name)
 
 
 ERROR_NAMES = {
@@ -67,7 +68,14 @@ ERROR_NAMES = {
     11: "FLASH_ERROR",
     12: "CRC_MISMATCH",
     13: "WRONG_FLASH_MODE",
+    14: "AUTH_FAILED",
+    15: "ROLLBACK",
 }
+
+# Protocol minor announced in Hello.  BOOT is at minor 3 (BSAFE-006):
+# AUTH_FAILED/ROLLBACK, ImageHeader.header_crc32/extension, BootSlotInfo
+# security_counter and the BootInfo signed_images/key_id/security_floor trio.
+PROTOCOL_MINOR = 3
 
 
 def error_name(code: int) -> str:
@@ -204,7 +212,7 @@ class SessionConfig:
     retries: int = MAX_RETRIES
     host_name: str = "hwval-studio"
     host_version: str = "0.1.0"
-    protocol_minor: int = 1
+    protocol_minor: int = PROTOCOL_MINOR
 
 
 @dataclass(slots=True)

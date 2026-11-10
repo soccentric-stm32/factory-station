@@ -26,6 +26,7 @@ pipeline {
 
     parameters {
         booleanParam(name: 'PACKAGE', defaultValue: false, description: 'Build the Linux package (.deb / AppImage); always done for a release tag')
+        booleanParam(name: 'HIL', defaultValue: false, description: 'Run the hardware-in-the-loop flow on a bench node')
     }
 
     environment {
@@ -95,10 +96,10 @@ for path in examples:
     print(f"config: {path} OK ({len(data)} keys)")
 PY
                     if git ls-files | grep -E '^(station[.]yaml|station-data/|profiles/)' \
-                        | grep -v '^profiles/sc767-1[.]0[.]0/' >/dev/null; then
+                        | grep -vE '^profiles/sc767-1[.][012][.][0-9a-z-]*/' >/dev/null; then
                         echo "config: runtime station data is tracked by git"
                         git ls-files | grep -E '^(station[.]yaml|station-data/|profiles/)' \
-                            | grep -v '^profiles/sc767-1[.]0[.]0/'
+                            | grep -vE '^profiles/sc767-1[.][012][.][0-9a-z-]*/'
                         exit 1
                     fi
                     echo "config: no runtime station data is tracked"
@@ -138,6 +139,26 @@ PY
                         echo "tests: no tests/ directory yet - skipping pytest"
                     fi
                 '''
+            }
+        }
+
+        stage('Hardware-in-the-loop') {
+            when { expression { params.HIL } }
+            agent { label 'hil-nucleo-f767zi' }
+            steps {
+                sh '''
+                    # Runs only on a bench node with a NUCLEO-F767ZI and an
+                    # ST-LINK; see docs/hardware-verification.md.
+                    python3 -m venv "${VENV}"
+                    "${VENV}/bin/python" -m pip install -e ".[dev]"
+                    "${VENV}/bin/hwval-factory" --detect
+                    "${VENV}/bin/hwval-factory" --cli --no-simulate --fixture F1 \
+                        --profile profiles/sc767-1.1.0 --pcb-serial "PCB-HIL-${BUILD_NUMBER}" \
+                        --json > hil-run.json
+                    "${VENV}/bin/hwval-factory" tool boot-check --fixture F1 \
+                        --profile profiles/sc767-1.1.0 --no-simulate --operator admin
+                '''
+                archiveArtifacts artifacts: 'hil-run.json', allowEmptyArchive: true
             }
         }
 

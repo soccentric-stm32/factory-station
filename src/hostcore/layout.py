@@ -50,10 +50,43 @@ IDENTITY_SIZE = 0x4000
 BANK1_SECTORS = 12
 FLASH_SIZE = BANK_SIZE * 2
 
-# Image header constants (IBWH).
+# Image header constants (IBWH).  The bootloader builds version 2 (signed)
+# headers; version 1 is the pre-signing format and is refused by a production
+# profile.  Offsets follow bootloader/tools/mkimage.py.
 IMAGE_MAGIC = 0x4857_4249       # "IBWH" little-endian
-IMAGE_HEADER_VERSION = 1
+IMAGE_HEADER_VERSION = 2
+IMAGE_HEADER_VERSION_UNSIGNED = 1
+IMAGE_HEADER_VERSIONS = (IMAGE_HEADER_VERSION_UNSIGNED, IMAGE_HEADER_VERSION)
 IMAGE_HEADER_SIZE = 256
 IMAGE_TYPE_APPLICATION = 1
+
+IMAGE_SECURITY_COUNTER_OFFSET = 88
+IMAGE_KEY_ID_OFFSET = 92
+IMAGE_SHA256_OFFSET = 96
+IMAGE_SHA256_SIZE = 32
+IMAGE_SIGNATURE_OFFSET = 128
+IMAGE_SIGNATURE_SIZE = 64
+IMAGE_SIGNED_SIZE = 128         # signature covers header bytes 0..127
+IMAGE_EXTENSION_OFFSET = 88     # hwlink.ImageHeader.extension = bytes 88..251
+IMAGE_EXTENSION_SIZE = 164
+IMAGE_HEADER_CRC_OFFSET = 252
+
+# The published development key, allowed only in non-production profiles
+# (P0-09 / section 6.3 item 2).
+DEVELOPMENT_KEY_ID = 0xFAA7_171B
+
+# BOOT settle rules (ENT-001, P0-06): after a reset stay off the port until
+# the 500 ms listen window and the image checks are over.  Shared with
+# bootctl.BOOT_SETTLE_S.
+BOOT_LISTEN_WINDOW_S = 0.5
+BOOT_SETTLE_S = 2.0
+MAX_BOOT_RELEASES = 3
+CATCH_INTERVAL_S = 0.05
+
+# Factory/update transport selection (profile.app_load).
+APP_LOAD_CHOICES = ("swd", "boot")
+TEST_MODE_CHOICES = ("bench", "under_boot")
+SLOT_B_AFTER_TEST_CHOICES = ("erase", "leave_superseded")
+
 
 __all__ = [name for name in globals() if name.isupper()]

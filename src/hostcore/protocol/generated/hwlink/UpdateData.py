@@ -62,42 +62,18 @@ class UpdateData(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         return o == 0
 
-def UpdateDataStart(builder):
-    builder.StartObject(2)
-
+def UpdateDataStart(builder): builder.StartObject(2)
 def Start(builder):
-    UpdateDataStart(builder)
-
-def UpdateDataAddOffset(builder, offset):
-    builder.PrependUint32Slot(0, offset, 0)
-
+    return UpdateDataStart(builder)
+def UpdateDataAddOffset(builder, offset): builder.PrependUint32Slot(0, offset, 0)
 def AddOffset(builder, offset):
-    UpdateDataAddOffset(builder, offset)
-
-def UpdateDataAddData(builder, data):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
-
+    return UpdateDataAddOffset(builder, offset)
+def UpdateDataAddData(builder, data): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
 def AddData(builder, data):
-    UpdateDataAddData(builder, data)
-
-def UpdateDataStartDataVector(builder, numElems):
-    return builder.StartVector(1, numElems, 1)
-
+    return UpdateDataAddData(builder, data)
+def UpdateDataStartDataVector(builder, numElems): return builder.StartVector(1, numElems, 1)
 def StartDataVector(builder, numElems):
     return UpdateDataStartDataVector(builder, numElems)
-
-def UpdateDataCreateDataVector(builder, data):
-    data = list(data)
-    builder.StartVector(1, len(data), 1)
-    for item in reversed(data):
-        builder.PrependUint8(item)
-    return builder.EndVector()
-
-def CreateDataVector(builder, data):
-    UpdateDataCreateDataVector(builder, data)
-
-def UpdateDataEnd(builder):
-    return builder.EndObject()
-
+def UpdateDataEnd(builder): return builder.EndObject()
 def End(builder):
     return UpdateDataEnd(builder)

@@ -49,32 +49,18 @@ class Progress(object):
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-def ProgressStart(builder):
-    builder.StartObject(3)
-
+def ProgressStart(builder): builder.StartObject(3)
 def Start(builder):
-    ProgressStart(builder)
-
-def ProgressAddOperation(builder, operation):
-    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(operation), 0)
-
+    return ProgressStart(builder)
+def ProgressAddOperation(builder, operation): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(operation), 0)
 def AddOperation(builder, operation):
-    ProgressAddOperation(builder, operation)
-
-def ProgressAddDone(builder, done):
-    builder.PrependUint32Slot(1, done, 0)
-
+    return ProgressAddOperation(builder, operation)
+def ProgressAddDone(builder, done): builder.PrependUint32Slot(1, done, 0)
 def AddDone(builder, done):
-    ProgressAddDone(builder, done)
-
-def ProgressAddTotal(builder, total):
-    builder.PrependUint32Slot(2, total, 0)
-
+    return ProgressAddDone(builder, done)
+def ProgressAddTotal(builder, total): builder.PrependUint32Slot(2, total, 0)
 def AddTotal(builder, total):
-    ProgressAddTotal(builder, total)
-
-def ProgressEnd(builder):
-    return builder.EndObject()
-
+    return ProgressAddTotal(builder, total)
+def ProgressEnd(builder): return builder.EndObject()
 def End(builder):
     return ProgressEnd(builder)

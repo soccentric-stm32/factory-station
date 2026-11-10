@@ -49,32 +49,18 @@ class LedState(object):
             return self._tab.Get(flatbuffers.number_types.Uint16Flags, o + self._tab.Pos)
         return 0
 
-def LedStateStart(builder):
-    builder.StartObject(3)
-
+def LedStateStart(builder): builder.StartObject(3)
 def Start(builder):
-    LedStateStart(builder)
-
-def LedStateAddLed(builder, led):
-    builder.PrependUint8Slot(0, led, 1)
-
+    return LedStateStart(builder)
+def LedStateAddLed(builder, led): builder.PrependUint8Slot(0, led, 1)
 def AddLed(builder, led):
-    LedStateAddLed(builder, led)
-
-def LedStateAddPattern(builder, pattern):
-    builder.PrependUint8Slot(1, pattern, 0)
-
+    return LedStateAddLed(builder, led)
+def LedStateAddPattern(builder, pattern): builder.PrependUint8Slot(1, pattern, 0)
 def AddPattern(builder, pattern):
-    LedStateAddPattern(builder, pattern)
-
-def LedStateAddPeriodMs(builder, periodMs):
-    builder.PrependUint16Slot(2, periodMs, 0)
-
+    return LedStateAddPattern(builder, pattern)
+def LedStateAddPeriodMs(builder, periodMs): builder.PrependUint16Slot(2, periodMs, 0)
 def AddPeriodMs(builder, periodMs):
-    LedStateAddPeriodMs(builder, periodMs)
-
-def LedStateEnd(builder):
-    return builder.EndObject()
-
+    return LedStateAddPeriodMs(builder, periodMs)
+def LedStateEnd(builder): return builder.EndObject()
 def End(builder):
     return LedStateEnd(builder)

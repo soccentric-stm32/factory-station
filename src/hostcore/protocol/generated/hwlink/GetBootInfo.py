@@ -28,14 +28,9 @@ class GetBootInfo(object):
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-def GetBootInfoStart(builder):
-    builder.StartObject(0)
-
+def GetBootInfoStart(builder): builder.StartObject(0)
 def Start(builder):
-    GetBootInfoStart(builder)
-
-def GetBootInfoEnd(builder):
-    return builder.EndObject()
-
+    return GetBootInfoStart(builder)
+def GetBootInfoEnd(builder): return builder.EndObject()
 def End(builder):
     return GetBootInfoEnd(builder)

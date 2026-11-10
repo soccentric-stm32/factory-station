@@ -105,80 +105,42 @@ class FaultInfo(object):
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-def FaultInfoStart(builder):
-    builder.StartObject(11)
-
+def FaultInfoStart(builder): builder.StartObject(11)
 def Start(builder):
-    FaultInfoStart(builder)
-
-def FaultInfoAddPresent(builder, present):
-    builder.PrependBoolSlot(0, present, 0)
-
+    return FaultInfoStart(builder)
+def FaultInfoAddPresent(builder, present): builder.PrependBoolSlot(0, present, 0)
 def AddPresent(builder, present):
-    FaultInfoAddPresent(builder, present)
-
-def FaultInfoAddReason(builder, reason):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(reason), 0)
-
+    return FaultInfoAddPresent(builder, present)
+def FaultInfoAddReason(builder, reason): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(reason), 0)
 def AddReason(builder, reason):
-    FaultInfoAddReason(builder, reason)
-
-def FaultInfoAddCfsr(builder, cfsr):
-    builder.PrependUint32Slot(2, cfsr, 0)
-
+    return FaultInfoAddReason(builder, reason)
+def FaultInfoAddCfsr(builder, cfsr): builder.PrependUint32Slot(2, cfsr, 0)
 def AddCfsr(builder, cfsr):
-    FaultInfoAddCfsr(builder, cfsr)
-
-def FaultInfoAddHfsr(builder, hfsr):
-    builder.PrependUint32Slot(3, hfsr, 0)
-
+    return FaultInfoAddCfsr(builder, cfsr)
+def FaultInfoAddHfsr(builder, hfsr): builder.PrependUint32Slot(3, hfsr, 0)
 def AddHfsr(builder, hfsr):
-    FaultInfoAddHfsr(builder, hfsr)
-
-def FaultInfoAddMmfar(builder, mmfar):
-    builder.PrependUint32Slot(4, mmfar, 0)
-
+    return FaultInfoAddHfsr(builder, hfsr)
+def FaultInfoAddMmfar(builder, mmfar): builder.PrependUint32Slot(4, mmfar, 0)
 def AddMmfar(builder, mmfar):
-    FaultInfoAddMmfar(builder, mmfar)
-
-def FaultInfoAddBfar(builder, bfar):
-    builder.PrependUint32Slot(5, bfar, 0)
-
+    return FaultInfoAddMmfar(builder, mmfar)
+def FaultInfoAddBfar(builder, bfar): builder.PrependUint32Slot(5, bfar, 0)
 def AddBfar(builder, bfar):
-    FaultInfoAddBfar(builder, bfar)
-
-def FaultInfoAddPc(builder, pc):
-    builder.PrependUint32Slot(6, pc, 0)
-
+    return FaultInfoAddBfar(builder, bfar)
+def FaultInfoAddPc(builder, pc): builder.PrependUint32Slot(6, pc, 0)
 def AddPc(builder, pc):
-    FaultInfoAddPc(builder, pc)
-
-def FaultInfoAddLr(builder, lr):
-    builder.PrependUint32Slot(7, lr, 0)
-
+    return FaultInfoAddPc(builder, pc)
+def FaultInfoAddLr(builder, lr): builder.PrependUint32Slot(7, lr, 0)
 def AddLr(builder, lr):
-    FaultInfoAddLr(builder, lr)
-
-def FaultInfoAddTask(builder, task):
-    builder.PrependUOffsetTRelativeSlot(8, flatbuffers.number_types.UOffsetTFlags.py_type(task), 0)
-
+    return FaultInfoAddLr(builder, lr)
+def FaultInfoAddTask(builder, task): builder.PrependUOffsetTRelativeSlot(8, flatbuffers.number_types.UOffsetTFlags.py_type(task), 0)
 def AddTask(builder, task):
-    FaultInfoAddTask(builder, task)
-
-def FaultInfoAddFile(builder, file):
-    builder.PrependUOffsetTRelativeSlot(9, flatbuffers.number_types.UOffsetTFlags.py_type(file), 0)
-
+    return FaultInfoAddTask(builder, task)
+def FaultInfoAddFile(builder, file): builder.PrependUOffsetTRelativeSlot(9, flatbuffers.number_types.UOffsetTFlags.py_type(file), 0)
 def AddFile(builder, file):
-    FaultInfoAddFile(builder, file)
-
-def FaultInfoAddLine(builder, line):
-    builder.PrependUint32Slot(10, line, 0)
-
+    return FaultInfoAddFile(builder, file)
+def FaultInfoAddLine(builder, line): builder.PrependUint32Slot(10, line, 0)
 def AddLine(builder, line):
-    FaultInfoAddLine(builder, line)
-
-def FaultInfoEnd(builder):
-    return builder.EndObject()
-
+    return FaultInfoAddLine(builder, line)
+def FaultInfoEnd(builder): return builder.EndObject()
 def End(builder):
     return FaultInfoEnd(builder)

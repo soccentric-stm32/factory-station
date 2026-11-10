@@ -42,26 +42,15 @@ class Ack(object):
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-def AckStart(builder):
-    builder.StartObject(2)
-
+def AckStart(builder): builder.StartObject(2)
 def Start(builder):
-    AckStart(builder)
-
-def AckAddSeq(builder, seq):
-    builder.PrependUint16Slot(0, seq, 0)
-
+    return AckStart(builder)
+def AckAddSeq(builder, seq): builder.PrependUint16Slot(0, seq, 0)
 def AddSeq(builder, seq):
-    AckAddSeq(builder, seq)
-
-def AckAddNextOffset(builder, nextOffset):
-    builder.PrependUint32Slot(1, nextOffset, 0)
-
+    return AckAddSeq(builder, seq)
+def AckAddNextOffset(builder, nextOffset): builder.PrependUint32Slot(1, nextOffset, 0)
 def AddNextOffset(builder, nextOffset):
-    AckAddNextOffset(builder, nextOffset)
-
-def AckEnd(builder):
-    return builder.EndObject()
-
+    return AckAddNextOffset(builder, nextOffset)
+def AckEnd(builder): return builder.EndObject()
 def End(builder):
     return AckEnd(builder)

@@ -117,7 +117,7 @@ class Status(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from .FaultInfo import FaultInfo
+            from hostcore.protocol.generated.hwlink.FaultInfo import FaultInfo
             obj = FaultInfo()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -130,7 +130,7 @@ class Status(object):
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
-            from .LedState import LedState
+            from hostcore.protocol.generated.hwlink.LedState import LedState
             obj = LedState()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -155,7 +155,7 @@ class Status(object):
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
-            from .TaskStats import TaskStats
+            from hostcore.protocol.generated.hwlink.TaskStats import TaskStats
             obj = TaskStats()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -201,152 +201,72 @@ class Status(object):
             return self._tab.Get(flatbuffers.number_types.Uint16Flags, o + self._tab.Pos)
         return 0
 
-def StatusStart(builder):
-    builder.StartObject(19)
-
+def StatusStart(builder): builder.StartObject(19)
 def Start(builder):
-    StatusStart(builder)
-
-def StatusAddFirmwareName(builder, firmwareName):
-    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(firmwareName), 0)
-
+    return StatusStart(builder)
+def StatusAddFirmwareName(builder, firmwareName): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(firmwareName), 0)
 def AddFirmwareName(builder, firmwareName):
-    StatusAddFirmwareName(builder, firmwareName)
-
-def StatusAddVersion(builder, version):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(version), 0)
-
+    return StatusAddFirmwareName(builder, firmwareName)
+def StatusAddVersion(builder, version): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(version), 0)
 def AddVersion(builder, version):
-    StatusAddVersion(builder, version)
-
-def StatusAddCommit(builder, commit):
-    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(commit), 0)
-
+    return StatusAddVersion(builder, version)
+def StatusAddCommit(builder, commit): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(commit), 0)
 def AddCommit(builder, commit):
-    StatusAddCommit(builder, commit)
-
-def StatusAddBuildTime(builder, buildTime):
-    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(buildTime), 0)
-
+    return StatusAddCommit(builder, commit)
+def StatusAddBuildTime(builder, buildTime): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(buildTime), 0)
 def AddBuildTime(builder, buildTime):
-    StatusAddBuildTime(builder, buildTime)
-
-def StatusAddUid(builder, uid):
-    builder.PrependUint64Slot(4, uid, 0)
-
+    return StatusAddBuildTime(builder, buildTime)
+def StatusAddUid(builder, uid): builder.PrependUint64Slot(4, uid, 0)
 def AddUid(builder, uid):
-    StatusAddUid(builder, uid)
-
-def StatusAddUptimeMs(builder, uptimeMs):
-    builder.PrependUint64Slot(5, uptimeMs, 0)
-
+    return StatusAddUid(builder, uid)
+def StatusAddUptimeMs(builder, uptimeMs): builder.PrependUint64Slot(5, uptimeMs, 0)
 def AddUptimeMs(builder, uptimeMs):
-    StatusAddUptimeMs(builder, uptimeMs)
-
-def StatusAddSlot(builder, slot):
-    builder.PrependUint8Slot(6, slot, 0)
-
+    return StatusAddUptimeMs(builder, uptimeMs)
+def StatusAddSlot(builder, slot): builder.PrependUint8Slot(6, slot, 0)
 def AddSlot(builder, slot):
-    StatusAddSlot(builder, slot)
-
-def StatusAddTrial(builder, trial):
-    builder.PrependUint8Slot(7, trial, 0)
-
+    return StatusAddSlot(builder, slot)
+def StatusAddTrial(builder, trial): builder.PrependUint8Slot(7, trial, 0)
 def AddTrial(builder, trial):
-    StatusAddTrial(builder, trial)
-
-def StatusAddTrialCount(builder, trialCount):
-    builder.PrependUint8Slot(8, trialCount, 0)
-
+    return StatusAddTrial(builder, trial)
+def StatusAddTrialCount(builder, trialCount): builder.PrependUint8Slot(8, trialCount, 0)
 def AddTrialCount(builder, trialCount):
-    StatusAddTrialCount(builder, trialCount)
-
-def StatusAddHealth(builder, health):
-    builder.PrependUint8Slot(9, health, 0)
-
+    return StatusAddTrialCount(builder, trialCount)
+def StatusAddHealth(builder, health): builder.PrependUint8Slot(9, health, 0)
 def AddHealth(builder, health):
-    StatusAddHealth(builder, health)
-
-def StatusAddResetCause(builder, resetCause):
-    builder.PrependUint32Slot(10, resetCause, 0)
-
+    return StatusAddHealth(builder, health)
+def StatusAddResetCause(builder, resetCause): builder.PrependUint32Slot(10, resetCause, 0)
 def AddResetCause(builder, resetCause):
-    StatusAddResetCause(builder, resetCause)
-
-def StatusAddResetCauseText(builder, resetCauseText):
-    builder.PrependUOffsetTRelativeSlot(11, flatbuffers.number_types.UOffsetTFlags.py_type(resetCauseText), 0)
-
+    return StatusAddResetCause(builder, resetCause)
+def StatusAddResetCauseText(builder, resetCauseText): builder.PrependUOffsetTRelativeSlot(11, flatbuffers.number_types.UOffsetTFlags.py_type(resetCauseText), 0)
 def AddResetCauseText(builder, resetCauseText):
-    StatusAddResetCauseText(builder, resetCauseText)
-
-def StatusAddFault(builder, fault):
-    builder.PrependUOffsetTRelativeSlot(12, flatbuffers.number_types.UOffsetTFlags.py_type(fault), 0)
-
+    return StatusAddResetCauseText(builder, resetCauseText)
+def StatusAddFault(builder, fault): builder.PrependUOffsetTRelativeSlot(12, flatbuffers.number_types.UOffsetTFlags.py_type(fault), 0)
 def AddFault(builder, fault):
-    StatusAddFault(builder, fault)
-
-def StatusAddLeds(builder, leds):
-    builder.PrependUOffsetTRelativeSlot(13, flatbuffers.number_types.UOffsetTFlags.py_type(leds), 0)
-
+    return StatusAddFault(builder, fault)
+def StatusAddLeds(builder, leds): builder.PrependUOffsetTRelativeSlot(13, flatbuffers.number_types.UOffsetTFlags.py_type(leds), 0)
 def AddLeds(builder, leds):
-    StatusAddLeds(builder, leds)
-
-def StatusStartLedsVector(builder, numElems):
-    return builder.StartVector(4, numElems, 4)
-
+    return StatusAddLeds(builder, leds)
+def StatusStartLedsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def StartLedsVector(builder, numElems):
     return StatusStartLedsVector(builder, numElems)
-
-def StatusCreateLedsVector(builder, data):
-    return builder.CreateVectorOfTables(data)
-
-def CreateLedsVector(builder, data):
-    StatusCreateLedsVector(builder, data)
-
-def StatusAddTasks(builder, tasks):
-    builder.PrependUOffsetTRelativeSlot(14, flatbuffers.number_types.UOffsetTFlags.py_type(tasks), 0)
-
+def StatusAddTasks(builder, tasks): builder.PrependUOffsetTRelativeSlot(14, flatbuffers.number_types.UOffsetTFlags.py_type(tasks), 0)
 def AddTasks(builder, tasks):
-    StatusAddTasks(builder, tasks)
-
-def StatusStartTasksVector(builder, numElems):
-    return builder.StartVector(4, numElems, 4)
-
+    return StatusAddTasks(builder, tasks)
+def StatusStartTasksVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def StartTasksVector(builder, numElems):
     return StatusStartTasksVector(builder, numElems)
-
-def StatusCreateTasksVector(builder, data):
-    return builder.CreateVectorOfTables(data)
-
-def CreateTasksVector(builder, data):
-    StatusCreateTasksVector(builder, data)
-
-def StatusAddHeapFree(builder, heapFree):
-    builder.PrependUint32Slot(15, heapFree, 0)
-
+def StatusAddHeapFree(builder, heapFree): builder.PrependUint32Slot(15, heapFree, 0)
 def AddHeapFree(builder, heapFree):
-    StatusAddHeapFree(builder, heapFree)
-
-def StatusAddHeapMinFree(builder, heapMinFree):
-    builder.PrependUint32Slot(16, heapMinFree, 0)
-
+    return StatusAddHeapFree(builder, heapFree)
+def StatusAddHeapMinFree(builder, heapMinFree): builder.PrependUint32Slot(16, heapMinFree, 0)
 def AddHeapMinFree(builder, heapMinFree):
-    StatusAddHeapMinFree(builder, heapMinFree)
-
-def StatusAddProtocolMajor(builder, protocolMajor):
-    builder.PrependUint16Slot(17, protocolMajor, 0)
-
+    return StatusAddHeapMinFree(builder, heapMinFree)
+def StatusAddProtocolMajor(builder, protocolMajor): builder.PrependUint16Slot(17, protocolMajor, 0)
 def AddProtocolMajor(builder, protocolMajor):
-    StatusAddProtocolMajor(builder, protocolMajor)
-
-def StatusAddProtocolMinor(builder, protocolMinor):
-    builder.PrependUint16Slot(18, protocolMinor, 0)
-
+    return StatusAddProtocolMajor(builder, protocolMajor)
+def StatusAddProtocolMinor(builder, protocolMinor): builder.PrependUint16Slot(18, protocolMinor, 0)
 def AddProtocolMinor(builder, protocolMinor):
-    StatusAddProtocolMinor(builder, protocolMinor)
-
-def StatusEnd(builder):
-    return builder.EndObject()
-
+    return StatusAddProtocolMinor(builder, protocolMinor)
+def StatusEnd(builder): return builder.EndObject()
 def End(builder):
     return StatusEnd(builder)

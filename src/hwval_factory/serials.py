@@ -206,8 +206,10 @@ def locally_administered_mac(uid_hex: str, salt: int = 0) -> str:
 
 
 class SerialService:
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, central: Any = None) -> None:
         self.db = db
+        self.central = central
+        self.station_id = str(getattr(central, "station_id", "") or "")
 
     def prepare_work_order(self, wo: WorkOrder, profile: ProductProfile) -> dict[str, int]:
         self.db.save_work_order(
@@ -230,6 +232,9 @@ class SerialService:
                     f"serial range for {wo.name} overlaps serial numbers already "
                     "allocated to another work order"
                 )
+        if self.central is not None:
+            self.central.load_serials(wo.name, serials)
+            self.central.load_macs(wo.name, mac_range(profile, wo))
         macs = mac_range(profile, wo)
         if macs:
             existing_macs = self.db.scalar(
@@ -248,7 +253,10 @@ class SerialService:
         return self.usage(wo.name)
 
     def usage(self, work_order: str) -> dict[str, Any]:
-        counts: dict[str, Any] = self.db.serial_counts(work_order)
+        if self.central is not None:
+            counts: dict[str, Any] = dict(self.central.usage(work_order))
+        else:
+            counts = self.db.serial_counts(work_order)
         if counts["TOTAL"]:
             counts["free_percent"] = round(counts["FREE"] * 100 / counts["TOTAL"], 1)
         else:
@@ -276,15 +284,36 @@ class SerialService:
         local_mac: bool = False,
     ) -> Allocation | None:
         serial = ""
-        if rework and uid:
-            serial = self.db.serial_by_uid(uid) or ""
-        if not serial:
-            serial = self.db.allocate_serial(work_order, uid=uid, run_id=run_id) or ""
+        if self.central is not None:
+            serial = (
+                self.central.reserve_serial(
+                    work_order,
+                    station=self.station_id,
+                    uid=uid,
+                    run_id=run_id,
+                )
+                or ""
+            )
+        else:
+            if rework and uid:
+                serial = self.db.serial_by_uid(uid) or ""
+            if not serial:
+                serial = self.db.allocate_serial(work_order, uid=uid, run_id=run_id) or ""
         if not serial:
             return None
         mac = ""
         if need_mac:
-            if rework and uid:
+            if self.central is not None:
+                mac = (
+                    self.central.reserve_mac(
+                        work_order,
+                        station=self.station_id,
+                        uid=uid,
+                        run_id=run_id,
+                    )
+                    or ""
+                )
+            elif rework and uid:
                 mac = self.db.mac_by_uid(uid) or ""
             if not mac and local_mac and uid:
                 salt = 0
@@ -310,6 +339,9 @@ class SerialService:
             self.db.consume_mac(allocation.mac, uid, run_id)
 
     def release(self, allocation: Allocation) -> None:
+        if self.central is not None:
+            self.central.release(serial=allocation.serial_number, mac=allocation.mac)
+            return
         self.db.release_serial(allocation.serial_number)
         if allocation.mac:
             self.db.release_mac(allocation.mac)
