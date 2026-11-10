@@ -1,4 +1,4 @@
-"""Light theme, colour tokens and SVG icon set shared by Studio and Factory."""
+"""Bench colour names and SVG icon set; colours and style sheet are ``soc_theme``."""
 
 from __future__ import annotations
 
@@ -6,43 +6,33 @@ from PySide6.QtCore import QByteArray, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
-COLORS: dict[str, str] = {
-    "bg": "#F5F5F7",
-    "surface": "#FFFFFF",
-    "surface_alt": "#FAFAFC",
-    "border": "#D2D2D7",
-    "text": "#1D1D1F",
-    "muted": "#6E6E73",
-    "accent": "#0071E3",
-    "accent_dark": "#0058B0",
-    "idle": "#8E8E93",
-    "load": "#5AC8FA",
-    "running": "#0071E3",
-    "action": "#FF9500",
-    "pass": "#1B8A3A",
-    "pass_bg": "#E7F7EC",
-    "fail": "#D70015",
-    "fail_bg": "#FDECEC",
-    "warn": "#B25000",
-    "warn_bg": "#FFF4E5",
-    "error": "#6E6E73",
-    "sidebar": "#F2F2F7",
-    "sidebar_border": "#D9D9DE",
-    "sidebar_hover": "#E7E7EC",
-    "sidebar_selected": "#DCE8FB",
-    "sidebar_selected_text": "#0058B0",
-    "shadow": "rgba(0, 0, 0, 0.10)",
-}
+from hostcore import soc_theme
 
-STATE_COLORS = {
-    "IDLE": COLORS["idle"],
-    "LOAD": COLORS["load"],
-    "RUNNING": COLORS["running"],
-    "ACTION": COLORS["action"],
-    "PASS": COLORS["pass"],
-    "FAIL": COLORS["fail"],
-    "ERROR": COLORS["error"],
+
+def _palette(t: soc_theme.Tokens) -> dict[str, str]:
+    """The bench's colour names, filled from the shared SoCcentric tokens."""
+    return {
+        "bg": t.window, "surface": t.surface, "surface_alt": t.surface_alt,
+        "border": t.border, "text": t.text, "muted": t.text_secondary,
+        "accent": t.accent, "accent_dark": t.accent_pressed,
+        "idle": t.text_tertiary, "load": t.accent_hover, "running": t.accent,
+        "action": t.warning, "pass": t.success, "pass_bg": t.success_soft,
+        "fail": t.danger, "fail_bg": t.danger_soft, "warn": t.warning,
+        "warn_bg": t.warning_soft, "error": t.text_secondary,
+        "sidebar": t.sidebar, "sidebar_border": t.hairline,
+        "sidebar_hover": t.surface_alt, "sidebar_selected": t.accent_soft,
+        "sidebar_selected_text": t.accent, "shadow": "rgba(0, 0, 0, 0.10)",
+    }
+
+
+# Mutated in place by apply_theme() so every module sees the active scheme.
+COLORS: dict[str, str] = _palette(soc_theme.LIGHT)
+
+_STATE_KEYS = {
+    "IDLE": "idle", "LOAD": "load", "RUNNING": "running", "ACTION": "action",
+    "PASS": "pass", "FAIL": "fail", "ERROR": "error",
 }
+STATE_COLORS: dict[str, str] = {k: COLORS[v] for k, v in _STATE_KEYS.items()}
 
 _ICONS: dict[str, str] = {
     "logo": '<path d="M4 7l8-4 8 4v10l-8 4-8-4z" fill="none" stroke="{c}" stroke-width="1.8"/><path d="M12 3v18M4 7l8 4 8-4" fill="none" stroke="{c}" stroke-width="1.4"/>',
@@ -99,208 +89,12 @@ def state_icon(state: str, size: int = 24) -> QIcon:
 
 
 def apply_theme(app: object) -> None:
-    """Apply the shared light stylesheet to a QApplication."""
+    """Apply the shared SoCcentric theme to a QApplication."""
     if not hasattr(app, "setStyleSheet"):
         return
-    c = COLORS
-    app.setStyleSheet(
-        f"""
-        * {{
-            font-family: -apple-system, "SF Pro Text", "Segoe UI", "Ubuntu", sans-serif;
-            font-size: 18px;
-            color: {c["text"]};
-        }}
-        QMainWindow, QWidget#Root {{ background: {c["bg"]}; }}
-        QWidget#Content, QStackedWidget#Pages {{ background: {c["bg"]}; }}
-        QFrame#Sidebar {{
-            background: {c["sidebar"]};
-            border-right: 1px solid {c["sidebar_border"]};
-        }}
-        QLabel#SidebarTitle {{ font-size: 17px; font-weight: 700; }}
-        QLabel#SidebarMuted {{ color: {c["muted"]}; font-size: 11px; }}
-        QLabel#SidebarSection {{
-            color: #8E8E93;
-            font-size: 10px;
-            font-weight: 700;
-            padding: 8px 8px 2px 8px;
-        }}
-        QLabel#SidebarUser {{ font-size: 13px; font-weight: 600; }}
-        QLabel#SidebarAvatar {{
-            background: {c["sidebar_selected"]};
-            color: {c["sidebar_selected_text"]};
-            border-radius: 17px;
-            font-size: 13px;
-            font-weight: 700;
-        }}
-        QLabel#SidebarBadge {{
-            background: {c["warn_bg"]};
-            color: {c["warn"]};
-            border-radius: 7px;
-            padding: 3px 7px;
-            font-size: 11px;
-            font-weight: 600;
-        }}
-        QLabel#SidebarVersion {{ color: #A1A1A6; font-size: 10px; }}
-        QFrame#SidebarFooter {{
-            background: transparent;
-            border-top: 1px solid {c["sidebar_border"]};
-        }}
-        QPushButton#SidebarItem {{
-            background: transparent;
-            border: none;
-            border-radius: 7px;
-            padding: 7px 9px;
-            text-align: left;
-            font-size: 14px;
-            color: {c["text"]};
-        }}
-        QPushButton#SidebarItem:hover {{ background: {c["sidebar_hover"]}; }}
-        QPushButton#SidebarItem:checked {{
-            background: {c["sidebar_selected"]};
-            color: {c["sidebar_selected_text"]};
-            font-weight: 600;
-        }}
-        QPushButton#SidebarAction {{
-            background: transparent;
-            border: none;
-            border-radius: 6px;
-            padding: 5px 9px;
-            text-align: left;
-            font-size: 13px;
-            color: {c["muted"]};
-        }}
-        QPushButton#SidebarAction:hover {{
-            background: {c["sidebar_hover"]};
-            color: {c["text"]};
-        }}
-        QFrame#Toolbar {{
-            background: {c["surface"]};
-            border-bottom: 1px solid {c["border"]};
-        }}
-        QLabel#ToolbarTitle {{ font-size: 21px; font-weight: 700; }}
-        QLabel#ToolbarProfile {{ color: {c["text"]}; font-size: 13px; font-weight: 600; }}
-        QLabel#ToolbarSubtitle {{ color: {c["muted"]}; font-size: 12px; }}
-        QLabel#ToolbarMetric {{ font-size: 22px; font-weight: 700; }}
-        QLabel#ToolbarMetricLabel {{ color: {c["muted"]}; font-size: 10px; font-weight: 700; }}
-        QLabel#ToolbarBadge {{
-            background: {c["surface_alt"]};
-            border: 1px solid {c["border"]};
-            border-radius: 9px;
-            padding: 6px 10px;
-            font-size: 12px;
-        }}
-        QFrame#Card {{
-            background: {c["surface"]};
-            border: 1px solid {c["border"]};
-            border-radius: 14px;
-        }}
-        QFrame#Header {{
-            background: {c["surface"]};
-            border-bottom: 1px solid {c["border"]};
-        }}
-        QLabel#Title {{ font-size: 26px; font-weight: 700; }}
-        QLabel#Subtitle {{ color: {c["muted"]}; font-size: 15px; }}
-        QLabel#Heading {{ font-size: 20px; font-weight: 700; }}
-        QLabel#Metric {{ font-size: 30px; font-weight: 700; }}
-        QLabel#Muted {{ color: {c["muted"]}; }}
-        QPushButton {{
-            background: {c["surface"]};
-            border: 1px solid {c["border"]};
-            border-radius: 9px;
-            padding: 8px 15px;
-            min-height: 26px;
-        }}
-        QPushButton:hover {{ background: {c["surface_alt"]}; }}
-        QPushButton:pressed {{ background: #E8E8ED; }}
-        QPushButton:disabled {{ color: #B0B0B5; background: #F7F7F9; }}
-        QPushButton#Primary {{
-            background: {c["accent"]};
-            color: white;
-            border: 1px solid {c["accent"]};
-            font-weight: 600;
-        }}
-        QPushButton#Primary:hover {{ background: {c["accent_dark"]}; }}
-        QPushButton#Danger {{
-            background: {c["fail"]};
-            color: white;
-            border: 1px solid {c["fail"]};
-            font-weight: 600;
-        }}
-        QPushButton#Success {{
-            background: {c["pass"]};
-            color: white;
-            border: 1px solid {c["pass"]};
-            font-weight: 600;
-        }}
-        QLineEdit, QComboBox, QSpinBox, QDateEdit, QTextEdit, QPlainTextEdit {{
-            background: {c["surface"]};
-            border: 1px solid {c["border"]};
-            border-radius: 8px;
-            padding: 7px 10px;
-            selection-background-color: {c["accent"]};
-        }}
-        QLineEdit:focus, QComboBox:focus, QTextEdit:focus, QPlainTextEdit:focus {{
-            border: 2px solid {c["accent"]};
-        }}
-        QTabWidget::pane {{
-            border: 1px solid {c["border"]};
-            border-radius: 12px;
-            background: {c["surface"]};
-        }}
-        QTabBar::tab {{
-            background: transparent;
-            padding: 10px 18px;
-            margin-right: 2px;
-            color: {c["muted"]};
-        }}
-        QTabBar::tab:selected {{
-            color: {c["text"]};
-            font-weight: 600;
-            border-bottom: 3px solid {c["accent"]};
-        }}
-        QTableWidget, QTreeWidget {{
-            background: {c["surface"]};
-            border: 1px solid {c["border"]};
-            border-radius: 10px;
-            gridline-color: #EDEDF0;
-            alternate-background-color: {c["surface_alt"]};
-        }}
-        QHeaderView::section {{
-            background: {c["surface_alt"]};
-            border: none;
-            border-bottom: 1px solid {c["border"]};
-            padding: 7px;
-            font-weight: 600;
-            color: {c["muted"]};
-        }}
-        QProgressBar {{
-            background: #E8E8ED;
-            border: none;
-            border-radius: 5px;
-            height: 10px;
-            text-align: center;
-        }}
-        QProgressBar::chunk {{
-            background: {c["accent"]};
-            border-radius: 5px;
-        }}
-        QScrollArea {{ border: none; background: transparent; }}
-        QSplitter::handle {{ background: {c["border"]}; }}
-        QMenuBar {{ background: {c["surface"]}; border-bottom: 1px solid {c["border"]}; }}
-        QMenuBar::item {{ padding: 7px 12px; background: transparent; }}
-        QMenuBar::item:selected {{ background: #EDEDF0; border-radius: 5px; }}
-        QMenu {{ background: {c["surface"]}; border: 1px solid {c["border"]}; padding: 5px; }}
-        QMenu::item {{ padding: 7px 24px; border-radius: 5px; }}
-        QMenu::item:selected {{ background: {c["accent"]}; color: white; }}
-        QStatusBar {{ background: {c["surface"]}; border-top: 1px solid {c["border"]}; }}
-        QToolTip {{
-            background: {c["text"]};
-            color: white;
-            border: none;
-            padding: 5px;
-        }}
-        """
-    )
+    tokens = soc_theme.apply(app)
+    COLORS.update(_palette(tokens))
+    STATE_COLORS.update({k: COLORS[v] for k, v in _STATE_KEYS.items()})
 
 
 def color_for_state(state: str) -> QColor:

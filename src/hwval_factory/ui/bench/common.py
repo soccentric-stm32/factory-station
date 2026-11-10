@@ -262,7 +262,7 @@ class BenchPage(QWidget):
     @staticmethod
     def primary(text: str, icon_name: str) -> QPushButton:
         button = QPushButton(icon(icon_name, "#FFFFFF", 16), f" {mnemonic_safe(text)}")
-        button.setObjectName("Primary")
+        button.setObjectName("Accent")
         return button
 
     @staticmethod
