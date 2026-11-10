@@ -41,12 +41,6 @@ Thumbs.db
 *.env
 
 # --- Station data (never commit) -----------------------------
-station.yaml
-profiles/*
-!profiles/sc767-1.0.0/
-!profiles/sc767-1.1.0/
-!profiles/sc767-1.2.0-flowb/
-*.zpl.out
 
 # --- Station runtime data -------------------------------------
 station-data/

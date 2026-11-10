@@ -1,4 +1,4 @@
-"""HWVAL Factory — end-of-line test and provisioning for STM32F767ZI boards."""
+"""HWVAL Factory — bench tool for STM32F767ZI boards."""
 
 __version__ = "0.1.0"
 APP_NAME = "HWVAL Factory"

@@ -66,6 +66,7 @@ CMD_WRITE_BEGIN = 0x03
 CMD_WRITE_DATA = 0x04
 CMD_WRITE_END = 0x05
 CMD_DIAG_INIT = 0x06
+CMD_SELFTEST = 0x07
 REPLY_FLAG = 0x80
 MAX_CHUNK = 512
 
@@ -79,6 +80,31 @@ STATUS_NAMES = {
     6: "FLASH_ERROR",
     7: "SEQUENCE",
 }
+
+# SELFTEST check ids and results (factory-firmware/docs/FACTORY_SPEC.md section 5.1)
+CHECK_DEVICE_ID = 1
+CHECK_FLASH_SIZE = 2
+CHECK_CLOCK = 3
+CHECK_RAM = 4
+CHECK_CRC = 5
+CHECK_FLASH_READ = 6
+CHECK_OPTION_BYTES = 7
+CHECK_NAMES = {
+    CHECK_DEVICE_ID: "Chip ID",
+    CHECK_FLASH_SIZE: "Flash size",
+    CHECK_CLOCK: "System clock",
+    CHECK_RAM: "RAM",
+    CHECK_CRC: "CRC unit",
+    CHECK_FLASH_READ: "Identity sector read",
+    CHECK_OPTION_BYTES: "Option bytes",
+}
+RESULT_PASS = 0
+RESULT_FAIL = 1
+RESULT_SKIP = 2
+
+DEVICE_ID = 0x451
+FLASH_SIZE_KB = 2048
+CORE_CLOCK_HZ = 216_000_000
 
 FACTORY_FIRMWARE_NAME = "soccentric-factory-firmware"
 

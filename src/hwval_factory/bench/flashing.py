@@ -25,10 +25,13 @@ from hwval_factory.bench.factorylink import (
     FactoryLinkError,
     SerialFactoryTransport,
 )
-from hwval_factory.profile import ProtectionSpec
-from hwval_factory.protection import ProtectionError, apply_protection
 
 Log = Callable[[str], None]
+
+# Dual-bank option bytes written before BOOT: nDBANK=0, nDBOOT=1, BOR level 3,
+# no write protection, RDP level 0 (0xAA), BOOT_ADD0/1 left at the ST defaults.
+DUAL_BANK_OPTCR = 0x1FFFAAE4
+DUAL_BANK_OPTCR1 = 0x00400080
 
 VENDOR_MKIMAGE = Path(images.__file__).resolve().parent / "vendor" / "mkimage.py"
 
@@ -118,6 +121,20 @@ def run_command(args: list[str], log: Log, timeout: float = 120.0) -> str:
 # -- BOOT over SWD -----------------------------------------------------
 
 
+def set_dual_bank_options(backend: OpenOcdProcess) -> None:
+    """Write the dual-bank option bytes and read them back."""
+    try:
+        backend.write_option_bytes(DUAL_BANK_OPTCR, DUAL_BANK_OPTCR1)
+        backend.reset(halt=True)
+        actual = backend.read_option_bytes()
+    except OpenOcdError as exc:
+        raise FlashError(f"option bytes could not be set: {exc}") from exc
+    if actual.optcr != DUAL_BANK_OPTCR:
+        raise FlashError(
+            f"option-byte read-back failed: OPTCR {actual.optcr:#010x} != {DUAL_BANK_OPTCR:#010x}"
+        )
+
+
 def flash_boot(
     image: str | Path,
     probe_serial: str,
@@ -137,11 +154,7 @@ def flash_boot(
         backend.halt()
         if set_options:
             log("Setting dual-bank option bytes (nDBANK=0, nDBOOT=1)")
-            spec = ProtectionSpec(ndbank=0, ndboot=1, bor_lev=3, wrp_bank1=[], wrp_bank2=[], rdp=0)
-            try:
-                apply_protection(backend, spec)
-            except (ProtectionError, OpenOcdError) as exc:
-                raise FlashError(f"option bytes could not be set: {exc}") from exc
+            set_dual_bank_options(backend)
         log("Erasing the flash")
         backend.mass_erase()
         log("Writing BOOT")

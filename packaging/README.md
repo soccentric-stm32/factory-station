@@ -9,11 +9,10 @@ resulting executable is `dist/hwval-factory/hwval-factory`.
 * Windows: `powershell -ExecutionPolicy Bypass -File packaging/build-windows.ps1`
   builds `dist/HWVAL-Factory-<version>-x64.msi` with WiX Toolset v3.
 
-Station configuration, profiles, the SQLite database, labels and certificates
-live outside the installation directory (PKG-002).  Keep them under
-`%PROGRAMDATA%\HWVAL Factory` on Windows or `/var/lib/hwval-factory` on Linux,
-or pass `--station` to the executable.  A station is reproducible from the
-installer, `station.yaml` and a profile archive (PKG-004).
+The bench tool keeps its factory-database CSV and other working files in the
+folder given by `--data-dir` (default `station-data` in the current folder).
+Keep it outside the installation directory, for example under
+`%PROGRAMDATA%\HWVAL Factory` on Windows or `/var/lib/hwval-factory` on Linux.
 
 ## ST-LINK access on Linux (K-01)
 

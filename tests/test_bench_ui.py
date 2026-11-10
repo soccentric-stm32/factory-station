@@ -9,13 +9,9 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox
 
 from hostcore.theme import apply_theme
-from hwval_factory.auth import AuthService
 from hwval_factory.bench import csvdb, flashing
-from hwval_factory.config import default_station
-from hwval_factory.database import Database
-from hwval_factory.profile import list_profiles
-from hwval_factory.station import Station
-from hwval_factory.ui.main_window import StationWindow
+from hwval_factory.ui.main_window import BenchWindow
+from hwval_factory.ui.sidebar import SECTION_TITLES
 
 ROOT = Path(__file__).resolve().parents[1]
 BOOTLOADER = flashing.bootloader_root()
@@ -33,27 +29,15 @@ def window(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(QMessageBox, name, staticmethod(lambda *a, **k: QMessageBox.StandardButton.Ok))
     app = QApplication.instance() or QApplication([])
     apply_theme(app)
-    config = default_station(simulated=True, fixture_count=1)
-    config.database = tmp_path / "station.sqlite"
-    config.labels_dir = tmp_path / "labels"
-    config.certificates_dir = tmp_path / "certs"
-    db = Database(config.database)
-    db.initialize()
-    auth = AuthService(db)
-    auth.ensure_default_admin()
-    auth.authenticate_pin("admin", "1234")
-    profile = sorted(list_profiles(ROOT / "profiles"), key=lambda p: p.version)[-1]
-    station = Station(config, db, profile, simulation=True, fail_tests=[], fault_rate=0.0, prompt_tests=[])
-    win = StationWindow(config, db, auth, station, profile)
+    win = BenchWindow(tmp_path / "data", simulate=True)
     win.show()
     yield win
     for page in win.bench_pages.values():
         page.wait_for_worker()
     win.close()
-    station.close()
 
 
-def settle(window: StationWindow, page, timeout: float = 20.0) -> None:
+def settle(window: BenchWindow, page, timeout: float = 20.0) -> None:
     import time
 
     end = time.time() + timeout
@@ -65,15 +49,24 @@ def settle(window: StationWindow, page, timeout: float = 20.0) -> None:
     assert not page.busy
 
 
-def test_every_page_opens_and_the_sidebar_follows(window: StationWindow) -> None:
-    for key in window._section_index:
+def test_every_page_opens_and_the_sidebar_follows(window: BenchWindow) -> None:
+    for key in SECTION_TITLES:
         window._show_section(key)
         assert window.sidebar._nav[key][0].isChecked()
-        assert window.section_title.text() == window._section_titles[key]
-    assert {"detect", "bootloader", "firmware", "device", "sysinfo", "calibration", "diagnostics"} <= set(window._section_index)
+        assert window.section_title.text() == SECTION_TITLES[key]
+    assert set(SECTION_TITLES) == {
+        "detect",
+        "bootloader",
+        "firmware",
+        "device",
+        "sysinfo",
+        "calibration",
+        "diagnostics",
+        "validation",
+    }
 
 
-def test_menu_actions_switch_pages_and_shortcuts_are_unique(window: StationWindow) -> None:
+def test_menu_actions_switch_pages_and_shortcuts_are_unique(window: BenchWindow) -> None:
     bench_menu = next(m for m in window.menuBar().findChildren(QMenu) if m.title() == "&Bench")
     next(a for a in bench_menu.actions() if a.text() == "Calibration").trigger()
     assert window.pages.currentWidget() is window.bench_pages["calibration"]
@@ -87,7 +80,7 @@ def test_menu_actions_switch_pages_and_shortcuts_are_unique(window: StationWindo
 
 
 @pytest.mark.skipif(BOOTLOADER is None, reason="needs the bootloader checkout for the key and bootctl")
-def test_full_simulated_bench_run(window: StationWindow, tmp_path: Path) -> None:
+def test_full_simulated_bench_run(window: BenchWindow, tmp_path: Path) -> None:
     factory_image = ROOT.parent / "factory-firmware" / "build" / "factory.img"
     if not factory_image.is_file():
         pytest.skip("build the factory firmware first (scripts/build.sh)")
@@ -139,7 +132,7 @@ def test_full_simulated_bench_run(window: StationWindow, tmp_path: Path) -> None
     assert states == ["written", "written", "written"]
 
 
-def test_a_bad_address_is_refused_without_touching_the_board(window: StationWindow, tmp_path: Path) -> None:
+def test_a_bad_address_is_refused_without_touching_the_board(window: BenchWindow, tmp_path: Path) -> None:
     window.bench.set_simulate(True)
     page = window.bench_pages["diagnostics"]
     (tmp_path / "x.diag").write_bytes(page.sample_blob())
@@ -148,3 +141,19 @@ def test_a_bad_address_is_refused_without_touching_the_board(window: StationWind
     page.write()
     assert page.result_chip.text() == "Bad address"
     assert window.bench.sim_device.flash[: 16] == b"\xff" * 16
+
+
+def test_validation_page_runs_on_the_simulated_board(window: BenchWindow, tmp_path: Path) -> None:
+    window.bench.set_simulate(True)
+    page = window.bench_pages["validation"]
+    page.run()
+    settle(window, page)
+    assert page.report is not None
+    # A fresh simulated board has blank blocks: incomplete, but nothing failed.
+    assert page.verdict_chip.text() == "Incomplete"
+    assert page.table.rowCount() == len(page.report.checks)
+    window.bench.sim_device.ram_fault = True
+    page.run()
+    settle(window, page)
+    assert page.verdict_chip.text() == "Fail"
+    assert page.save_button.isEnabled()

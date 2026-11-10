@@ -10,12 +10,8 @@ SHELL := /bin/bash
 
 PYTHON ?= python3
 VENV ?= .venv
-STATION ?= examples/station.simulator.yaml
-PROFILE ?= examples/profile-sc767-demo
-FIXTURE ?= F1
-WORK_ORDER ?=
+DATA_DIR ?= station-data
 RUN_ARGS ?=
-SMOKE_SERIAL ?= PCB-MAKE-$(shell $(PYTHON) -c "import uuid; print(uuid.uuid4().hex[:12])")
 
 ifeq ($(OS),Windows_NT)
 	VENV_BIN := $(VENV)/Scripts
@@ -35,7 +31,7 @@ PACKAGING_STAMP := $(VENV)/.hwval-packaging-installed
 # Source-tree runs work without an editable install.
 export PYTHONPATH := src$(if $(PYTHONPATH),$(PATHSEP)$(PYTHONPATH))
 
-.PHONY: help venv install dev packaging-deps run demo smoke self-test test \
+.PHONY: help venv install dev packaging-deps run demo smoke test \
 	lint format typecheck check build package-linux package-windows \
 	hostkit version clean clean-data clean-all
 
@@ -44,9 +40,8 @@ help: ## Show this help
 	@echo
 	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo
-	@echo "Variables: PYTHON=$(PYTHON) VENV=$(VENV) STATION=$(STATION)"
-	@echo "           PROFILE=$(PROFILE) FIXTURE=$(FIXTURE) WORK_ORDER=$(WORK_ORDER)"
-	@echo "Example:   make demo STATION=examples/station.simulator.yaml"
+	@echo "Variables: PYTHON=$(PYTHON) VENV=$(VENV) DATA_DIR=$(DATA_DIR)"
+	@echo "Example:   make demo"
 
 venv: $(PY) ## Create the virtual environment
 	@echo "virtual environment: $(VENV)"
@@ -73,34 +68,16 @@ $(PACKAGING_STAMP): pyproject.toml requirements.txt | $(PY)
 
 packaging-deps: $(PACKAGING_STAMP) ## Install PyInstaller
 
-run: install ## Launch the station UI (simulator by default)
-	$(PY) -m hwval_factory.app --station $(STATION) $(RUN_ARGS)
+run: install ## Launch the bench UI
+	$(PY) -m hwval_factory --data-dir $(DATA_DIR) $(RUN_ARGS)
 
-demo: install ## Run one simulated unit headless
-	$(PY) -m hwval_factory --cli \
-		--station $(STATION) \
-		--profile $(PROFILE) \
-		--fixture $(FIXTURE) \
-		--pcb-serial "$(SMOKE_SERIAL)" \
-		$(if $(WORK_ORDER),--work-order "$(WORK_ORDER)")
+demo: install ## Launch the bench UI with a simulated board
+	$(PY) -m hwval_factory --data-dir $(DATA_DIR) --simulate
 
-smoke: install ## Version, fixture list, self-test and one simulated unit
+smoke: install ## Print the version and build the bench window offscreen
 	$(PY) -m hwval_factory --version
-	$(PY) -m hwval_factory --list-fixtures --station $(STATION)
-	$(PY) -m hwval_factory --self-test --station $(STATION) \
-		--profile $(PROFILE) --fixture $(FIXTURE)
-	$(PY) -m hwval_factory --cli \
-		--station $(STATION) \
-		--profile $(PROFILE) \
-		--fixture $(FIXTURE) \
-		--pcb-serial "$(SMOKE_SERIAL)" \
-		$(if $(WORK_ORDER),--work-order "$(WORK_ORDER)") \
-		--json > /dev/null
+	QT_QPA_PLATFORM=offscreen $(PY) -m pytest -q tests/test_ui_smoke.py
 	@echo "smoke: PASS"
-
-self-test: install ## Run the fixture golden-board self-test
-	$(PY) -m hwval_factory --self-test --station $(STATION) \
-		--profile $(PROFILE) --fixture $(FIXTURE)
 
 hostkit: ## Vendor the canonical HWLINK bundle and regenerate the schema
 	$(PYTHON) scripts/update_hostkit.py
@@ -144,10 +121,8 @@ clean: ## Remove build/test caches (keeps runtime data)
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
 	find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
 
-clean-data: ## Remove simulator runtime data, labels and local databases
-	rm -rf station-data
-	rm -f station-data.sqlite station-data.sqlite-wal station-data.sqlite-shm
-	rm -f hwval-factory.sqlite hwval-factory.sqlite-wal hwval-factory.sqlite-shm
+clean-data: ## Remove local bench data
+	rm -rf $(DATA_DIR)
 
 clean-all: clean clean-data ## Remove caches, runtime data and the virtualenv
 	rm -rf $(VENV)

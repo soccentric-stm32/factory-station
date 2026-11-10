@@ -40,14 +40,6 @@ def test_ibwh_build_and_parse(tmp_path: Path) -> None:
     assert parsed.crc32 == zlib.crc32(parsed.data) & 0xFFFFFFFF
 
 
-def test_real_app_image_is_accepted() -> None:
-    path = ROOT / "profiles/sc767-1.0.0/app-0.1.0.img"
-    parsed = parse_image(path)
-    assert parsed.version_string() == "0.1.0"
-    assert parsed.load_address == layout.SLOT_A_BASE
-    assert len(parsed.header) == layout.IMAGE_HEADER_SIZE
-
-
 def test_corrupt_ibwh_is_rejected(tmp_path: Path) -> None:
     image = bytearray(build_image(_valid_payload(), version=0x00010000, name="app"))
     image[252] ^= 0xFF

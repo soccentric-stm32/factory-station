@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hwval-factory"
 version = "0.1.0"
-description = "HWVAL Factory — STM32F767ZI end-of-line test and provisioning station"
+description = "HWVAL Factory — bench tool for STM32F767ZI boards"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -22,12 +22,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-qt", "ruff>=0.6", "mypy>=1.10", "flatbuffers>=23.5"]
 packaging = ["pyinstaller>=6.6"]
-central = ["psycopg[binary]>=3.1"]
 
 [project.scripts]
-hwval-factory = "hwval_factory.cli:main"
-hwval-factory-ui = "hwval_factory.app:main"
-hwval-profile = "hwval_factory.profile_tool:main"
+hwval-factory = "hwval_factory.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

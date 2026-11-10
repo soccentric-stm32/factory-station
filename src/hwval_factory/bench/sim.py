@@ -48,6 +48,12 @@ class SimFactoryDevice:
         self.fail_next_write = False
         self.session: _Session | None = None
         self.resets = 0
+        # What the simulated hardware reports to SELFTEST; tests change these to inject faults.
+        self.idcode = 0x1000_0000 | spec.DEVICE_ID
+        self.flash_kb = spec.FLASH_SIZE_KB
+        self.clock_hz = spec.CORE_CLOCK_HZ
+        self.optcr = 0x0FFF_AAE4
+        self.ram_fault = False
 
     # -- helpers ------------------------------------------------------
     def _at(self, address: int) -> int:
@@ -85,6 +91,7 @@ class SimFactoryDevice:
             spec.CMD_WRITE_DATA: self._data,
             spec.CMD_WRITE_END: self._end,
             spec.CMD_DIAG_INIT: self._diag_init,
+            spec.CMD_SELFTEST: self._selftest,
         }.get(command)
         if handler is None:
             return self._status(command, BAD_COMMAND)
@@ -182,6 +189,34 @@ class SimFactoryDevice:
         block = bytearray(b"\xff" * spec.BLOCK_SIZE)
         block[: len(clean)] = clean
         return self._program(spec.CMD_DIAG_INIT, address, bytes(block), len(clean))
+
+    def _selftest(self, _request: bytes) -> bytes:
+        """Mirror ``handle_selftest`` in factory_proto.c."""
+        if self.session is not None:
+            return self._status(spec.CMD_SELFTEST, SEQUENCE)
+        known_crc = zlib.crc32(b"123456789") & 0xFFFFFFFF
+
+        def verdict(ok: bool) -> int:
+            return spec.RESULT_PASS if ok else spec.RESULT_FAIL
+
+        checks = (
+            (spec.CHECK_DEVICE_ID, verdict(self.idcode & 0xFFF == spec.DEVICE_ID), self.idcode),
+            (spec.CHECK_FLASH_SIZE, verdict(self.flash_kb == spec.FLASH_SIZE_KB), self.flash_kb),
+            (spec.CHECK_CLOCK, verdict(self.clock_hz == spec.CORE_CLOCK_HZ), self.clock_hz),
+            (spec.CHECK_RAM, verdict(not self.ram_fault), spec.BLOCK_SIZE),
+            (spec.CHECK_CRC, verdict(known_crc == 0xCBF43926), known_crc),
+            (spec.CHECK_FLASH_READ, spec.RESULT_PASS, 0),
+            (
+                spec.CHECK_OPTION_BYTES,
+                verdict(not self.optcr & (1 << 29) and (self.optcr >> 8) & 0xFF != 0xCC),
+                self.optcr,
+            ),
+        )
+        out = bytearray(self._status(spec.CMD_SELFTEST, OK))
+        out.append(len(checks))
+        for check, result, value in checks:
+            out += struct.pack("<BBI", check, result, value)
+        return bytes(out)
 
     # -- transport ----------------------------------------------------
     def handle_frame(self, raw: bytes) -> list[bytes]:

@@ -22,22 +22,30 @@ Detect page (or **Bench > Simulated Board**, Ctrl+Shift+M).
 
 ## The pages
 
-1. **Detect** (Ctrl+4) finds the ST-LINK probe and its UART port. If more than
+1. **Detect** (Ctrl+1) finds the ST-LINK probe and its UART port. If more than
    one is attached, choose the right pair.
-2. **Bootloader** (Ctrl+5) erases the flash, sets the dual-bank option bytes and
+2. **Bootloader** (Ctrl+2) erases the flash, sets the dual-bank option bytes and
    writes the bootloader over SWD. **Verify BOOT key** reads the key id the
    bootloader trusts and compares it with your key.
-3. **Factory firmware** (Ctrl+6) signs `factory.img` with your key, sends it
+3. **Factory firmware** (Ctrl+3) signs `factory.img` with your key, sends it
    through the bootloader into slot A, resets the board over SWD and waits for
    the firmware to answer.
-4. **Device info** (Ctrl+7) resets the board and shows the firmware name,
+4. **Device info** (Ctrl+4) resets the board and shows the firmware name,
    version, build and chip UID. The table shows what the `.sys`, `.cal` and
    `.diag` blocks hold.
-5. **System info** (Ctrl+8) searches the CSV database by id or serial number,
+5. **System info** (Ctrl+5) searches the CSV database by id or serial number,
    compacts the unit's row into a `.sys` file and writes it.
-6. **Calibration** (Ctrl+9) loads a `.cal` file and writes it.
-7. **Diagnostics** (Ctrl+0) loads a `.diag` file and writes it, or initializes a
+6. **Calibration** (Ctrl+6) loads a `.cal` file and writes it.
+7. **Diagnostics** (Ctrl+7) loads a `.diag` file and writes it, or initializes a
    clean fault and diagnostic map.
+8. **Validation** (Ctrl+8) checks the board without writing to it. Contents:
+   the firmware is the factory firmware, the chip UID is valid, and the `.sys`,
+   `.cal` and `.diag` blocks parse, pass both CRCs, carry their required fields
+   and, when bound to a chip, belong to this one. Peripherals: the firmware
+   self-test checks the chip ID, flash size, 216 MHz clock, a RAM pattern test,
+   the CRC unit, the identity sector read and the dual-bank option bytes. A
+   blank block is reported as incomplete, not failed. **Save report…** writes
+   the result as text.
 
 Each write is checked on the PC first (header and both CRCs), checked again by
 the firmware, then read back from the board and compared byte for byte. A page

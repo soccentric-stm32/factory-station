@@ -1,7 +1,7 @@
-// Jenkinsfile - multi-stage CI for HWVAL Factory (end-of-line station).
+// Jenkinsfile - multi-stage CI for HWVAL Factory (bench tool).
 //
-//   Checkout -> Setup -> Lint -> Type check -> Config check -> CLI smoke
-//            -> Station self-test -> Tests -> Package -> Release (tags) -> Archive
+//   Checkout -> Setup -> Lint -> Type check -> CLI smoke -> Tests
+//            -> Package -> Release (tags) -> Archive
 //
 // Package builds dist/<repo>-<version>.tar.gz (outputs, manifest.json,
 // SHA256SUMS) on every run.  Release runs only for a tag v<version> and
@@ -10,8 +10,8 @@
 // tag (git tag v0.2.0 && git push origin v0.2.0).
 //
 // Pure Python; the agent needs python3 (>= 3.11), git and network access for
-// PyPI. The station runs entirely against the fixture simulator, so no
-// NUCLEO-F767ZI, ST-LINK or printer is required.
+// PyPI. The tests run against the simulated board, so no NUCLEO-F767ZI or
+// ST-LINK is required.
 
 pipeline {
     agent any
@@ -26,7 +26,6 @@ pipeline {
 
     parameters {
         booleanParam(name: 'PACKAGE', defaultValue: false, description: 'Build the Linux package (.deb / AppImage); always done for a release tag')
-        booleanParam(name: 'HIL', defaultValue: false, description: 'Run the hardware-in-the-loop flow on a bench node')
     }
 
     environment {
@@ -75,58 +74,9 @@ pipeline {
             }
         }
 
-        stage('Config check') {
-            steps {
-                sh '''
-                    python3 - <<'PY'
-from pathlib import Path
-import yaml
-
-examples = [
-    Path("examples/station.simulator.yaml"),
-    Path("examples/station.real.example.yaml"),
-    Path("examples/profile-sc767-demo/manifest.yaml"),
-]
-for path in examples:
-    if not path.is_file():
-        raise SystemExit(f"config: {path} is missing")
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or not data:
-        raise SystemExit(f"config: {path} did not parse to a mapping")
-    print(f"config: {path} OK ({len(data)} keys)")
-PY
-                    if git ls-files | grep -E '^(station[.]yaml|station-data/|profiles/)' \
-                        | grep -vE '^profiles/sc767-1[.][012][.][0-9a-z-]*/' >/dev/null; then
-                        echo "config: runtime station data is tracked by git"
-                        git ls-files | grep -E '^(station[.]yaml|station-data/|profiles/)' \
-                            | grep -vE '^profiles/sc767-1[.][012][.][0-9a-z-]*/'
-                        exit 1
-                    fi
-                    echo "config: no runtime station data is tracked"
-                '''
-            }
-        }
-
         stage('CLI smoke') {
             steps {
-                sh '''
-                    "${VENV}/bin/hwval-factory" --version
-                    "${VENV}/bin/hwval-factory" --list-fixtures
-                    "${VENV}/bin/hwval-profile" --help >/dev/null
-                    echo "cli: factory and profile tool start cleanly"
-                '''
-            }
-        }
-
-        stage('Station self-test') {
-            steps {
-                // End-to-end simulator run with the demo profile. Signature
-                // policy differs between stations, so this is advisory.
-                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                    sh '''
-                        "${VENV}/bin/hwval-factory" --simulate --self-test --profile examples/profile-sc767-demo
-                    '''
-                }
+                sh '"${VENV}/bin/hwval-factory" --version'
             }
         }
 
@@ -139,26 +89,6 @@ PY
                         echo "tests: no tests/ directory yet - skipping pytest"
                     fi
                 '''
-            }
-        }
-
-        stage('Hardware-in-the-loop') {
-            when { expression { params.HIL } }
-            agent { label 'hil-nucleo-f767zi' }
-            steps {
-                sh '''
-                    # Runs only on a bench node with a NUCLEO-F767ZI and an
-                    # ST-LINK; see docs/hardware-verification.md.
-                    python3 -m venv "${VENV}"
-                    "${VENV}/bin/python" -m pip install -e ".[dev]"
-                    "${VENV}/bin/hwval-factory" --detect
-                    "${VENV}/bin/hwval-factory" --cli --no-simulate --fixture F1 \
-                        --profile profiles/sc767-1.1.0 --pcb-serial "PCB-HIL-${BUILD_NUMBER}" \
-                        --json > hil-run.json
-                    "${VENV}/bin/hwval-factory" tool boot-check --fixture F1 \
-                        --profile profiles/sc767-1.1.0 --no-simulate --operator admin
-                '''
-                archiveArtifacts artifacts: 'hil-run.json', allowEmptyArchive: true
             }
         }
 
@@ -205,7 +135,7 @@ PY
             deleteDir()
         }
         success {
-            echo 'HWVAL Factory: lint, config, CLI, self-test and package checks passed.'
+            echo 'HWVAL Factory: lint, tests and package checks passed.'
         }
         failure {
             echo 'HWVAL Factory: pipeline failed - see the stage logs above.'

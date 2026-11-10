@@ -1,51 +1,32 @@
 # factory-station
 
-HWVAL Factory is the end-of-line test and provisioning station for STM32F767ZI boards, a cross-platform PySide6 desktop application for the production line. With one operator action per board it identifies the chip over SWD, runs the end-of-line test plan with the HWVAL firmware, programs the bootloader and application, writes a per-unit identity record, checks the product boots correctly, applies flash protection, prints the label and records everything for traceability. Up to eight fixtures run in parallel per PC, and a full simulator lets you try every step without hardware.
+HWVAL Factory is a cross-platform PySide6 bench tool for STM32F767ZI boards. It takes a blank board from the box to a unit with its bootloader, factory firmware, system info, calibration and diagnostic map, one page at a time. Every page also works against a simulated board, so you can try the whole flow without hardware.
 
 ## Features
 
-- One-action end-of-line flow from barcode scan to printed label
-- Up to eight fixtures in parallel, each with its own worker and state machine
-- Chip identification over SWD (device ID, revision, UID, option bytes)
-- End-of-line test plan run through HWVAL over HWLINK with operator prompts
-- Optional calibration step
-- Programs bootloader, application and metadata over SWD or through the bootloader
-- Per-unit provisioning record with serial number, MAC, revision and calibration
-- Atomic serial and MAC allocation with Luhn check digits and pool warnings
-- Boot check of identity and confirmed slot
-- BOR, write and readout protection with read-back; RDP level 2 always rejected
-- Signed (ECDSA P-256) v2 images with anti-rollback counters; the station verifies, never signs
-- Listen-window-safe boot checks shared with `bootctl` (no false BOOT failures)
-- One-module-per-step pipeline with typed ports, recipe validation and standalone tools
-- Engineer Tools page and `hwval-factory tool …` commands with role checks and audit
-- Optional debug-UART capture attached to runs and failure text
-- Flow B prototype (HWVAL on a signed trial slot under BOOT) in the simulator
-- Versioned, SHA-256 pinned and Ed25519-signed production profiles
-- ZPL label printing over TCP with preview and PDF/PNG fallback
-- SQLite traceability with search, unit history, CSV/JSON export and PDF certificates
-- Optional queued HTTPS uplink to an MES
-- Badge or PIN login with operator, supervisor, engineer and administrator roles
-- Yield dashboard with Pareto chart and cycle times
-- Golden-board self-test that blocks production when due
-- Simulator of the STM32F767ZI flash, protection and HWLINK device stack
-- Headless CLI with pass/fail/error exit codes
-- Packaging for PyInstaller, .deb, AppImage and Windows MSI
-- macOS-style light window with a sidebar, a full menu bar and SVG icons
-- Bench pages for a blank board: Detect (ST-LINK and UART), Bootloader, Factory firmware, Device info, System info, Calibration and Diagnostics
-- Flashes the bootloader over SWD and the signed factory firmware into slot A through the bootloader, with your signing key
-- Writes `.sys`, `.cal` and `.diag` files over UART through the factory firmware, each read back and compared
-- CSV factory database searched by id and compacted into a `.sys` file
-- Simulated board for every bench page, no hardware needed
+- Detect page: lists ST-LINK probes and UART ports, with a simulated board option
+- Bootloader page: flashes the bootloader over SWD after setting the dual-bank option bytes
+- Factory firmware page: flashes the signed factory firmware into slot A through the bootloader, with your signing key
+- Device info page: reads the device and shows the state of the `.sys`, `.cal` and `.diag` blocks
+- System info page: searches a CSV factory database by id and writes the compacted `.sys` file over UART
+- Calibration page: writes a `.cal` file over UART, read back and compared
+- Diagnostics page: writes a `.diag` file over UART, read back and compared, with an address check that protects the identity record
+- Validation page: read-only check of the factory data blocks and a firmware self-test of the chip ID, flash size, clock, RAM, CRC unit, flash read and option bytes, with a saved text report
+- Simulated board for every page, no hardware needed
+- Sidebar, full menu bar and SVG icons in the shared SoCcentric look (one design shared with the other SoCcentric desktop apps: Inter (system sans fallback), a 22/15/13/12/11 px type scale, accent `#007AFF` (`#0A84FF` in dark), 10 px cards with hairline borders, 32 px buttons, pill status labels and a solid-accent current item in the sidebar. Light and dark follow the system colour scheme. `src/hostcore/soc_theme.py` is the shared theme file.)
 
 ## Build and run
 
 ```bash
 python -m pip install -e .
-hwval-factory-ui --simulate --fixtures 4   # full flow with four simulated fixtures
+hwval-factory --simulate                   # open the bench with a simulated board
+hwval-factory --data-dir station-data      # folder for the factory database CSV
 make dev && make test                      # install dev/test extras and run the suite
 make lint                                  # ruff
 make hostkit                               # re-vendor the HWLINK contract bundle
 ```
+
+See [docs/bench-guide.md](docs/bench-guide.md) for the page-by-page guide.
 
 ## Related projects
 

@@ -112,6 +112,15 @@ class FactoryInfo:
         return self.name == spec.FACTORY_FIRMWARE_NAME
 
 
+@dataclass(slots=True)
+class SelfTestItem:
+    """One SELFTEST check: id, result (see ``spec.RESULT_*``) and the measured value."""
+
+    check: int
+    result: int
+    value: int
+
+
 def split_strings(blob: bytes, count: int) -> tuple[list[str], bytes]:
     out: list[str] = []
     offset = 0
@@ -255,6 +264,20 @@ class FactoryLink:
         if len(reply) >= 4 and struct.unpack("<I", reply[:4])[0] != files.crc32(stored):
             raise FactoryLinkError("diagnostic map CRC differs from what the board reported")
         return stored
+
+    def selftest(self) -> list[SelfTestItem]:
+        """Run the firmware's peripheral checks; nothing is written to flash."""
+        body = self.request(spec.CMD_SELFTEST, timeout=5.0, retries=1)
+        if not body:
+            raise FactoryLinkError("SELFTEST reply is empty")
+        count = body[0]
+        if len(body) < 1 + count * 6:
+            raise FactoryLinkError("SELFTEST reply is truncated")
+        items = []
+        for index in range(count):
+            check, result, value = struct.unpack_from("<BBI", body, 1 + index * 6)
+            items.append(SelfTestItem(check, result, value))
+        return items
 
     def read_file(self, address: int) -> files.FactoryFile | None:
         """Read back the file stored at ``address``; None when the block is blank."""
