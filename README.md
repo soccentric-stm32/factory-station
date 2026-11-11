@@ -2,6 +2,8 @@
 
 HWVAL Factory is a cross-platform PySide6 bench tool for STM32F767ZI boards. It takes a blank board from the box to a unit with its bootloader, factory firmware, system info, calibration and diagnostic map, one page at a time. Every page also works against a simulated board, so you can try the whole flow without hardware.
 
+[![HWVAL Factory: the validation page on a simulated board](https://raw.githubusercontent.com/soccentric-stm32/soccentric-stm32.github.io/main/assets/shots/factory-station.webp)](https://soccentric-stm32.github.io/#eol)
+
 ## Features
 
 - Detect page: lists ST-LINK probes and UART ports, with a simulated board option
