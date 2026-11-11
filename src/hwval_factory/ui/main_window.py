@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from hostcore.soc_terminal import TerminalPanel
 from hwval_factory import APP_NAME, __version__
 from hwval_factory.ui.bench.pages_connect import (
     BootloaderPage,
@@ -91,7 +92,19 @@ class BenchWindow(QMainWindow):
         self.pages.currentChanged.connect(self._page_changed)
         column.addWidget(self.pages, 1)
         layout.addWidget(content, 1)
+
+        # Debug UART terminal on the right, as in the BOOT flasher.
+        self.terminal = TerminalPanel(title="Debug UART")
+        self.terminal.setMaximumWidth(460)
+        self.terminal.closed.connect(lambda: self.terminal_action.setChecked(False))
+        self.terminal.stop("Board port in use")
+        self.terminal.refresh_ports(self.bench.port)
+        self.bench.changed.connect(self._sync_terminal_port)
+        layout.addWidget(self.terminal)
         self.setCentralWidget(root)
+
+    def _sync_terminal_port(self) -> None:
+        self.terminal.set_board_port(self.bench.port)
 
     def _header(self) -> QWidget:
         header = QFrame()
@@ -169,6 +182,12 @@ class BenchWindow(QMainWindow):
         self.sidebar_action.setShortcut(QKeySequence("Ctrl+Alt+B"))
         self.sidebar_action.toggled.connect(self.sidebar.setVisible)
         view.addAction(self.sidebar_action)
+        self.terminal_action = QAction("Debug Terminal", self)
+        self.terminal_action.setCheckable(True)
+        self.terminal_action.setChecked(True)
+        self.terminal_action.setShortcut(QKeySequence("Ctrl+J"))
+        self.terminal_action.toggled.connect(self.terminal.setVisible)
+        view.addAction(self.terminal_action)
 
         window_menu = menu.addMenu("&Window")
         self._action(window_menu, "Minimize", self.showMinimized, "Ctrl+M")
