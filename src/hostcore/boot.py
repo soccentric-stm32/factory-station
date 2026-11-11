@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from hostcore.layout import (
     BOOT_SETTLE_S,
@@ -103,7 +103,7 @@ def wait_for_application(
             continue
         role = _role(hello)
         if role not in BOOT_ROLES:
-            return hello
+            return cast(dict[str, Any], hello)
         try:
             info = session.boot_info()
         except Exception as exc:

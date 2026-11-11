@@ -20,7 +20,7 @@ import struct
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, cast
 
 from hostcore.layout import (
     APP_LOAD_ADDR,
@@ -316,9 +316,10 @@ def key_id(point: bytes) -> int:
 def public_key_pem(key: Any) -> str:
     _hashes, serialization, _ec, _utils = _crypto()
     public = key.public_key() if hasattr(key, "public_key") else key
-    return public.public_bytes(
+    pem = public.public_bytes(
         serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
-    ).decode("ascii")
+    )
+    return str(pem.decode("ascii"))
 
 
 def _coerce_public_key(key: Any) -> Any:
@@ -470,7 +471,7 @@ def _parse_img(path: Path) -> FirmwareImage:
     if zlib.crc32(payload) & 0xFFFFFFFF != int(fields["image_crc32"]):
         raise ImageError(f"{path.name}: image payload CRC32 mismatch")
     if int(fields["header_version"]) == IMAGE_HEADER_VERSION and (
-        hashlib.sha256(payload).digest() != bytes(fields["image_sha256"])
+        hashlib.sha256(payload).digest() != bytes(cast(Any, fields["image_sha256"]))
     ):
         raise ImageError(f"{path.name}: image SHA-256 mismatch")
     errors = validate_vectors(payload)
@@ -496,8 +497,8 @@ def _parse_img(path: Path) -> FirmwareImage:
         header_crc32=int(fields["header_crc32"]),
         security_counter=int(fields["security_counter"]),
         key_id=int(fields["key_id"]),
-        image_sha256=bytes(fields["image_sha256"]),
-        signature=bytes(fields["signature"]),
+        image_sha256=bytes(cast(Any, fields["image_sha256"])),
+        signature=bytes(cast(Any, fields["signature"])),
     )
 
 
