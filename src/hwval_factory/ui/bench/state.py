@@ -46,15 +46,16 @@ class BenchState(QObject):
         self.sim_boot_flashed = False
         self.detected = detect.DetectResult([], [])
 
-        workspace = self._workspace()
+        boot_repo = flashing.bootloader_root() or Path.cwd()
+        factory_repo = self._factory_firmware_root(boot_repo)
         self.key_path = self._load(
-            "key_path", _first_existing([workspace / "bootloader/keys/dev-signing-key.pem"])
+            "key_path", _first_existing([boot_repo / "keys/dev-signing-key.pem"])
         )
         self.boot_image = self._load(
-            "boot_image", _first_existing([workspace / "bootloader/build/boot.elf"])
+            "boot_image", _first_existing([boot_repo / "build/boot.elf"])
         )
         self.factory_image = self._load(
-            "factory_image", _first_existing([workspace / "factory-firmware/build/factory.img"])
+            "factory_image", _first_existing([factory_repo / "build/factory.img"])
         )
         self.security_counter = int(self._load("security_counter", "1") or 1)
         self.csv_path = self._load("csv_path", str(self.data_dir / "factory.csv"))
@@ -62,9 +63,15 @@ class BenchState(QObject):
         self.diag_path = self._load("diag_path", "")
 
     @staticmethod
-    def _workspace() -> Path:
-        root = flashing.bootloader_root()
-        return root.parent if root else Path.cwd()
+    def _factory_firmware_root(boot_repo: Path) -> Path:
+        """factory-firmware: <workspace>/factory/ beside this repo, else next to the bootloader."""
+        for candidate in (
+            boot_repo.parent.parent / "factory" / "factory-firmware",
+            boot_repo.parent / "factory-firmware",
+        ):
+            if candidate.is_dir():
+                return candidate
+        return boot_repo.parent / "factory-firmware"
 
     def _load(self, name: str, default: str) -> str:
         try:

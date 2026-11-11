@@ -74,6 +74,7 @@ def bootloader_root() -> Path | None:
     for parent in here.parents:
         candidates.append(parent.parent / "bootloader")
         candidates.append(parent / "bootloader")
+        candidates.append(parent / "bootloader" / "bootloader")
     for candidate in candidates:
         if (candidate / "tools" / "bootctl.py").is_file():
             return candidate

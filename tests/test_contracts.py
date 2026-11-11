@@ -20,7 +20,11 @@ from hostcore import layout
 from hostcore.protocol.link import PROTOCOL_MINOR
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKSPACE = ROOT.parent
+# <workspace>/<group>/<repo>: the station lives in factory/, its contract sources
+# in bootloader/bootloader and validation/validation-firmware.
+WORKSPACE = ROOT.parents[1]
+BOOTLOADER_REPO = WORKSPACE / "bootloader" / "bootloader"
+VALIDATION_REPO = WORKSPACE / "validation" / "validation-firmware"
 
 
 def _read(path: Path) -> str:
@@ -37,11 +41,11 @@ def _define(text: str, name: str) -> int:
 
 
 def _boot_schema() -> Path:
-    return WORKSPACE / "bootloader/protocol/hwlink.fbs"
+    return BOOTLOADER_REPO / "protocol/hwlink.fbs"
 
 
 def _hwval_schema() -> Path:
-    return WORKSPACE / "validation-firmware/protocol/hwlink.fbs"
+    return VALIDATION_REPO / "protocol/hwlink.fbs"
 
 
 def _union_members(text: str) -> list[str]:
@@ -83,18 +87,18 @@ def test_vendored_bundle_schema_and_hash_are_current() -> None:
 
 
 def test_protocol_minor_matches_boot() -> None:
-    header = _read(WORKSPACE / "bootloader/src/protocol/hwlink.h")
+    header = _read(BOOTLOADER_REPO / "src/protocol/hwlink.h")
     match = re.search(r"HWLINK_PROTOCOL_MINOR\s+(\d+)U", header)
     assert match, "HWLINK_PROTOCOL_MINOR missing from boot hwlink.h"
     boot_minor = int(match.group(1))
-    bootctl = _read(WORKSPACE / "bootloader/tools/bootctl.py")
+    bootctl = _read(BOOTLOADER_REPO / "tools/bootctl.py")
     python_match = re.search(r"PROTOCOL_MINOR\s*=\s*(\d+)", bootctl)
     assert python_match, "PROTOCOL_MINOR missing from bootctl.py"
     assert boot_minor == int(python_match.group(1)) == PROTOCOL_MINOR == 3
 
 
 def test_image_header_v2_offsets_match_mkimage() -> None:
-    mkimage = _read(WORKSPACE / "bootloader/tools/mkimage.py")
+    mkimage = _read(BOOTLOADER_REPO / "tools/mkimage.py")
     expected = {
         "SECURITY_COUNTER_OFFSET": layout.IMAGE_SECURITY_COUNTER_OFFSET,
         "KEY_ID_OFFSET": layout.IMAGE_KEY_ID_OFFSET,
@@ -123,7 +127,7 @@ def test_image_header_v2_offsets_match_mkimage() -> None:
 
 
 def test_boot_layout_constants_match_firmware() -> None:
-    text = _read(WORKSPACE / "bootloader/src/common/boot_layout.h")
+    text = _read(BOOTLOADER_REPO / "src/common/boot_layout.h")
 
     assert _define(text, "BOOT_BANK1_BASE") == layout.BANK1_BASE
     assert _define(text, "BOOT_BANK2_BASE") == layout.BANK2_BASE
@@ -185,7 +189,7 @@ def test_firmware_schema_minor_is_not_older_than_used_messages() -> None:
         "GetBootInfo",
     ):
         assert re.search(rf"table\s+{table}\b", schema), f"HWVAL schema lacks {table}"
-    header = _read(WORKSPACE / "validation-firmware/src/hwlink.h")
+    header = _read(VALIDATION_REPO / "src/hwlink.h")
     match = re.search(r"HWLINK_PROTOCOL_MINOR\s+(\d+)U", header)
     assert match, "HWVAL protocol minor is missing"
     # HWVAL answers at minor 1; the station only relies on its HWVAL messages,

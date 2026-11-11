@@ -18,7 +18,7 @@ repository.  The station needs both, so this script:
 Nothing under ``src/hostcore/vendor`` or ``src/hostcore/protocol/generated``
 is edited by hand; run this script instead.
 
-    scripts/update_hostkit.py                 # build ../bootloader first
+    scripts/update_hostkit.py                 # build bootloader/bootloader first
     scripts/update_hostkit.py --bundle PATH   # use an existing bundle
 """
 
@@ -34,8 +34,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_BOOTLOADER = ROOT.parent / "bootloader"
-DEFAULT_HWVAL = ROOT.parent / "validation-firmware"
+DEFAULT_BOOTLOADER = ROOT.parents[1] / "bootloader" / "bootloader"
+DEFAULT_HWVAL = ROOT.parents[1] / "validation" / "validation-firmware"
 VENDOR = ROOT / "src" / "hostcore" / "vendor"
 SCHEMA = ROOT / "src" / "hostcore" / "protocol" / "hwlink.fbs"
 GENERATED = ROOT / "src" / "hostcore" / "protocol" / "generated" / "hwlink"
