@@ -157,3 +157,26 @@ def test_validation_page_runs_on_the_simulated_board(window: BenchWindow, tmp_pa
     settle(window, page)
     assert page.verdict_chip.text() == "Fail"
     assert page.save_button.isEnabled()
+
+
+def test_validation_page_draws_results_by_group(window: BenchWindow) -> None:
+    from hwval_factory.bench import validation as v
+    from hwval_factory.ui.bench.charts import count_by_group
+
+    page = window.bench_pages["validation"]
+    assert page.chart.groups() == []
+    report = v.ValidationReport(
+        checks=[
+            v.Check("Identity", "uid", v.PASS, ""),
+            v.Check("Identity", "serial", v.FAIL, "blank"),
+            v.Check("Peripherals", "adc", v.PASS, ""),
+            v.Check("Peripherals", "can", v.SKIP, ""),
+        ]
+    )
+    page._show_report(report)
+    groups = page.chart.groups()
+    assert [g.name for g in groups] == ["Identity", "Peripherals"]
+    assert (groups[0].pass_, groups[0].fail) == (1, 1)
+    assert (groups[1].pass_, groups[1].skip) == (1, 1)
+    assert not page.chart.grab().isNull()
+    assert count_by_group([("a", "bogus")])[0].skip == 1

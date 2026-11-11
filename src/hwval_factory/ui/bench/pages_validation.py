@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from hostcore.theme import COLORS
 from hwval_factory.bench import validation
+from hwval_factory.ui.bench.charts import GroupResultChart, count_by_group
 from hwval_factory.ui.bench.common import BenchPage, Card, chip, set_chip, value_label
 from hwval_factory.ui.bench.state import BenchState
 
@@ -53,6 +54,11 @@ class ValidationPage(BenchPage):
         self.save_button.setEnabled(False)
         run.body.addLayout(self.button_row(self.run_button, self.save_button))
         self.add_card(run)
+
+        overview = Card("Results by group", "Checks that passed out of the checks run, for each group.")
+        self.chart = GroupResultChart()
+        overview.body.addWidget(self.chart)
+        self.add_card(overview)
 
         results = Card("Checks", "Contents come from the identity sector; peripherals from the firmware self-test.")
         self.table = QTableWidget(0, 4)
@@ -103,6 +109,7 @@ class ValidationPage(BenchPage):
         text = {"pass": "Pass", "fail": "Fail", "warn": "Incomplete"}[verdict]
         set_chip(self.verdict_chip, text, _CHIPS[verdict])
         self.summary_text.setText(report.summary())
+        self.chart.set_groups(count_by_group((c.group, c.status) for c in report.checks))
         self.table.setRowCount(len(report.checks))
         colours = {
             validation.PASS: COLORS["pass"],
