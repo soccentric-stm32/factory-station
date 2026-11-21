@@ -23,9 +23,14 @@ from hwval_factory import __version__ as VERSION  # noqa: E402  (spec is exec'd 
 # file is rendered from it out of band (see packaging/README.md, "macOS build
 # notes") and the bundle falls back to the PyInstaller icon while it is absent.
 ICNS = ROOT / "packaging" / "hwval-factory.icns"
-datas = [
-    (str(ROOT / "docs"), "docs"),
-]
+# The bench guide is optional: it ships next to README.md but is not part of
+# every checkout, and `open_guide()` in the main window already falls back to a
+# message when it is absent.  Adding a missing tree makes PyInstaller abort, so
+# only collect it when it is really there.
+DOCS = ROOT / "docs"
+datas = []
+if DOCS.is_dir():
+    datas.append((str(DOCS), "docs"))
 datas += collect_data_files("hwval_factory")
 datas += collect_data_files("hostcore")
 

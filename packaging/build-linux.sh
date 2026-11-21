@@ -14,7 +14,11 @@ mkdir -p "$STAGE/opt/hwval-factory" "$STAGE/usr/bin" "$STAGE/usr/share/applicati
 cp -R dist/hwval-factory/. "$STAGE/opt/hwval-factory/"
 ln -s /opt/hwval-factory/hwval-factory "$STAGE/usr/bin/hwval-factory"
 cp packaging/hwval-factory.desktop "$STAGE/usr/share/applications/"
-cp README.md docs/*.md "$STAGE/usr/share/doc/hwval-factory/"
+cp README.md "$STAGE/usr/share/doc/hwval-factory/"
+# docs/ is optional in a checkout; copy it only when it exists.
+if [ -d docs ]; then
+  cp docs/*.md "$STAGE/usr/share/doc/hwval-factory/"
+fi
 
 if command -v fpm >/dev/null 2>&1; then
   fpm -s dir -t deb -n hwval-factory -v "$VERSION" -C "$STAGE" \
